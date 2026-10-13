@@ -1,0 +1,17 @@
+# build output
+/build/
+/dist/
+/out/
+CMakeUserPresets.json
+
+# downloaded binaries (see docs/DEPENDENCIES.md for how to restore them)
+/third_party/
+/tools/
+
+# local test artifacts
+/testdata/
+
+# IDE
+.vs/
+.vscode/
+*.user
