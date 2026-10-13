@@ -4,8 +4,9 @@
 
 Writes resources/icons/localflix.png (256 px, used inside the app) and
 resources/localflix.ico (PNG-compressed, multiple sizes, used for the .exe).
-The design: a rounded square with a blue gradient, a play triangle and a thin
-progress bar: "a player that remembers where you stopped".
+The design is flat on purpose (solid colours, no gradients or shadows): a rounded square in the
+app's accent blue, a white play triangle and a progress bar ("a player that remembers where you
+stopped"). Very small sizes drop the bar so the triangle stays readable.
 """
 from __future__ import annotations
 
@@ -36,18 +37,34 @@ def in_triangle(px: float, py: float, a, b, c) -> bool:
     return not (neg and pos)
 
 
+# Flat palette (matches the accent colour used by the application theme).
+BLUE = (0x5B, 0x8D, 0xEF)
+BLUE_TRACK = (0x3F, 0x6B, 0xD1)  # darker solid blue for the unfilled part of the bar
+WHITE = (255, 255, 255)
+
+
 def render(size: int) -> bytes:
     ss = 3 if size <= 128 else 2  # supersampling grid per axis
     radius = size * 0.22
-    # play triangle, optically centred slightly right of middle
-    tri = (
-        (size * 0.38, size * 0.27),
-        (size * 0.38, size * 0.66),
-        (size * 0.74, size * 0.465),
-    )
-    bar_y0, bar_y1 = size * 0.78, size * 0.84
-    bar_x0, bar_x1 = size * 0.20, size * 0.80
-    bar_fill = bar_x0 + (bar_x1 - bar_x0) * 0.62
+    show_bar = size >= 40
+    if show_bar:
+        # triangle sits in the upper part, the bar underneath
+        tri = (
+            (size * 0.37, size * 0.24),
+            (size * 0.37, size * 0.62),
+            (size * 0.73, size * 0.43),
+        )
+        bar_y0, bar_y1 = size * 0.75, size * 0.81
+        bar_x0, bar_x1 = size * 0.20, size * 0.80
+        bar_fill = bar_x0 + (bar_x1 - bar_x0) * 0.62
+    else:
+        # tiny sizes: just a larger, vertically centred triangle
+        tri = (
+            (size * 0.34, size * 0.22),
+            (size * 0.34, size * 0.78),
+            (size * 0.78, size * 0.50),
+        )
+        bar_y0 = bar_y1 = bar_x0 = bar_x1 = bar_fill = -1.0
 
     rows = bytearray()
     for y in range(size):
@@ -58,23 +75,16 @@ def render(size: int) -> bytes:
                 for sx in range(ss):
                     px = x + (sx + 0.5) / ss
                     py = y + (sy + 0.5) / ss
-                    a = rounded_rect_alpha(px, py, size, radius)
-                    if a == 0.0:
+                    if rounded_rect_alpha(px, py, size, radius) == 0.0:
                         continue
-                    t = (px + py) / (2 * size)  # diagonal gradient
-                    r = 0x1B + (0x4C - 0x1B) * t
-                    g = 0x24 + (0x7B - 0x24) * t
-                    b = 0x3F + (0xE6 - 0x3F) * t
+                    colour = BLUE
                     if in_triangle(px, py, *tri):
-                        r, g, b = 255, 255, 255
-                    elif bar_y0 <= py <= bar_y1 and bar_x0 <= px <= bar_x1:
-                        if px <= bar_fill:
-                            r, g, b = 255, 255, 255
-                        else:
-                            r, g, b = r * 0.55 + 255 * 0.0, g * 0.55, b * 0.55 + 70
-                    acc[0] += r
-                    acc[1] += g
-                    acc[2] += b
+                        colour = WHITE
+                    elif show_bar and bar_y0 <= py <= bar_y1 and bar_x0 <= px <= bar_x1:
+                        colour = WHITE if px <= bar_fill else BLUE_TRACK
+                    acc[0] += colour[0]
+                    acc[1] += colour[1]
+                    acc[2] += colour[2]
                     acc[3] += 1.0
             n = ss * ss
             if acc[3] == 0:
