@@ -16,7 +16,22 @@ episode automatically**. Windows 10/11, C++20, Qt 6 Widgets, **libmpv** for play
 
 *(Screenshots are rendered by the test suite with Qt's software OpenGL.)*
 
-## Quick start
+## Install
+
+Download **`LocalFlix-<version>-setup.exe`** from the [latest release](https://github.com/victorhmrod/LocalFlix/releases/latest)
+and run it. It installs for your user account by default (no administrator rights needed; pick "install for all users"
+in the dialog if you prefer), adds a Start Menu entry (and an optional desktop icon), and registers LocalFlix in
+*Settings → Apps* for uninstalling. English and Brazilian Portuguese. Uninstalling removes the program and asks whether
+to also delete your library; your video files are never touched.
+
+The installer is not code-signed, so Windows SmartScreen may show *"Windows protected your PC"*: choose
+*More info → Run anyway*. Verify the download against the published `.sha256` file if you want to be sure
+(`certutil -hashfile LocalFlix-<version>-setup.exe SHA256`).
+
+Prefer no installer? The release also has a portable **`LocalFlix-<version>-win64.zip`**: unzip anywhere and run
+`localflix.exe`.
+
+## Build from source
 
 Requirements: Windows 10/11 x64, Visual Studio (Desktop development with C++), Qt 6.7 `msvc2019_64`, CMake, 7-Zip.
 Details and version pins: [docs/DEPENDENCIES.md](docs/DEPENDENCIES.md).
@@ -27,6 +42,7 @@ cd LocalFlix
 scripts\fetch-deps.cmd     :: downloads + verifies libmpv (and mpv.exe for test clips)
 build.cmd                  :: Release build -> build\Release\localflix.exe
 scripts\package.cmd        :: self-contained folder + zip in dist\ (run this one to get a runnable app)
+scripts\make-installer.cmd :: Windows installer in dist\installer\ (needs Inno Setup 6, see below)
 ```
 
 `build\Release\localflix.exe` needs the Qt DLLs on `PATH`; the folder produced by `scripts\package.cmd`
@@ -67,6 +83,21 @@ scripts\package.cmd
 Builds Release, runs `windeployqt`, assembles `dist\LocalFlix\` (exe, `libmpv-2.dll`, Qt DLLs and plugins, MSVC
 runtime, software OpenGL), smoke-tests it with **no Qt on `PATH`**, and writes `dist\LocalFlix-<version>-win64.zip`.
 Unzip anywhere and run `localflix.exe`.
+
+### Installer
+
+```bat
+winget install JRSoftware.InnoSetup   :: once
+scripts\make-installer.cmd
+```
+
+Packages the application (same steps as `package.cmd`, into `dist\installer-staging`), compiles
+[`installer\LocalFlix.iss`](installer/LocalFlix.iss) with Inno Setup 6 into
+`dist\installer\LocalFlix-<version>-setup.exe` (+ `.sha256`), then **tests it for real**: a silent per-user install into a
+temporary folder, a launch of the installed exe with no Qt on `PATH`, and a silent uninstall that must remove the
+program and its Apps & features entry while leaving the library alone. The test refuses to run if LocalFlix is already
+installed on the machine. `-SkipPackage` reuses the staging folder, `-SkipTest` skips the install test, and
+`LOCALFLIX_ISCC` points to a non-standard `ISCC.exe`.
 
 ## Using LocalFlix
 

@@ -63,7 +63,7 @@ docs: add manual end-to-end test checklist
 
 - App desktop Windows em C++20, Qt 6 (Widgets), libmpv e SQLite, build com CMake + Ninja.
 - Qt está em `D:\Qt\6.7.3\msvc2019_64` (ou `LOCALFLIX_QT_DIR`); o compilador é o MSVC do Visual Studio (os scripts chamam o `vcvars64.bat` sozinhos).
-- Comandos: `scripts\fetch-deps.cmd` (libmpv), `build.cmd [Release|Debug]`, `test.cmd` (ctest; `-LE gui` = sem janela), `scripts\package.cmd`.
+- Comandos: `scripts\fetch-deps.cmd` (libmpv), `build.cmd [Release|Debug]`, `test.cmd` (ctest; `-LE gui` = sem janela), `scripts\package.cmd` (pasta + zip), `scripts\make-installer.cmd` (instalador Inno Setup em `dist\installer`, com teste de instalar/desinstalar).
 - `third_party/`, `tools/` e `testdata/` contêm binários/vídeos gerados e ficam fora do git.
 - Arquitetura e decisões: `docs/ARCHITECTURE.md`. Checklist manual: `docs/MANUAL_TEST_CHECKLIST.md`.
 - Nunca apagar, mover ou copiar arquivos de vídeo do usuário. Testes usam apenas vídeos sintéticos gerados.

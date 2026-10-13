@@ -11,6 +11,7 @@ one-time download of libmpv (and, optionally, `mpv.exe`) by `scripts\fetch-deps.
 | Qt | 6.7.3, kit `msvc2019_64` (Qt ≥ 6.5 should work) | `D:\Qt\6.7.3\msvc2019_64`, override with `LOCALFLIX_QT_DIR` | UI, SQL (SQLite driver), tests |
 | libmpv | mpv v0.41 git `9d144e57b6` (client API 2.5), build tag `20261013` | `third_party\libmpv` | media engine |
 | 7-Zip | any | `7z.exe` on `PATH` or `C:\Program Files\7-Zip` | unpack the `.7z` archives in `fetch-deps` |
+| Inno Setup | optional, 6.x (`winget install JRSoftware.InnoSetup`) | `%LOCALAPPDATA%\Programs\Inno Setup 6` or `Program Files`, override with `LOCALFLIX_ISCC` | `scripts\make-installer.cmd` (the setup `.exe`) |
 | Python 3 | optional, 3.8+ | `python` on `PATH` | `make_test_videos.py`, `make_icon.py` (stdlib only) |
 
 Qt modules used: Core, Gui, Widgets, OpenGL, OpenGLWidgets, Sql, Svg (and Test for the tests).
