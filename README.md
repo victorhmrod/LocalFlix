@@ -28,6 +28,9 @@ The installer is not code-signed, so Windows SmartScreen may show *"Windows prot
 *More info → Run anyway*. Verify the download against the published `.sha256` file if you want to be sure
 (`certutil -hashfile LocalFlix-<version>-setup.exe SHA256`).
 
+**Android:** there is a native Android version in [`android/`](android/README.md) (Kotlin, Jetpack Compose, Room,
+Media3). It builds with `android\gradle.cmd assembleDebug`; see its README for the toolchain and how it is tested.
+
 Prefer no installer? The release also has a portable **`LocalFlix-<version>-win64.zip`**: unzip anywhere and run
 `localflix.exe`.
 
