@@ -29,7 +29,7 @@ The installer is not code-signed, so Windows SmartScreen may show *"Windows prot
 (`certutil -hashfile LocalFlix-<version>-setup.exe SHA256`).
 
 **Android:** there is a native Android version (Kotlin, Jetpack Compose, Room, Media3). Download the APK from the
-[Android release](https://github.com/victorhmrod/LocalFlix/releases/tag/android-v1.0.0); the code is in
+[v1.0.0 release](https://github.com/victorhmrod/LocalFlix/releases/tag/v1.0.0); the code is in
 [`android/`](android/README.md), which also explains the toolchain and how it is tested.
 
 Prefer no installer? The release also has a portable **`LocalFlix-<version>-win64.zip`**: unzip anywhere and run
