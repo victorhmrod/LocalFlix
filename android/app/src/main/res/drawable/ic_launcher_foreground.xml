@@ -1,0 +1,17 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Flat LocalFlix mark (same design as resources/localflix.ico): play triangle + progress bar. -->
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="108dp"
+    android:height="108dp"
+    android:viewportWidth="108"
+    android:viewportHeight="108">
+    <path
+        android:fillColor="#FFFFFF"
+        android:pathData="M45.4,36.8 L45.4,61.9 L69.2,49.4 Z" />
+    <path
+        android:fillColor="#FFFFFF"
+        android:pathData="M34.2,70.5 H58.8 V74.5 H34.2 Z" />
+    <path
+        android:fillColor="#3F6BD1"
+        android:pathData="M58.8,70.5 H73.8 V74.5 H58.8 Z" />
+</vector>
