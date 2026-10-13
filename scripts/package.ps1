@@ -1,6 +1,10 @@
 <#
 .SYNOPSIS
-  Builds a Release package: dist\LocalFlix\ (runnable folder) and dist\LocalFlix-<version>-win64.zip.
+  Builds a Release package: <OutDir>\LocalFlix\ (runnable folder) and <OutDir>\LocalFlix-<version>-win64.zip.
+
+.PARAMETER OutDir
+  Output folder, relative to the repository root unless absolute. Default: dist.
+  Use another folder (e.g. -OutDir dist\release) if LocalFlix is still running from the default one.
 
 .DESCRIPTION
   1. Release build (build.cmd)
@@ -10,11 +14,13 @@
   5. smoke test: start the packaged exe with a PATH that has no Qt in it and render the window
   6. zip
 #>
+param([string]$OutDir = 'dist')
 $ErrorActionPreference = 'Stop'
 $root = Split-Path -Parent $PSScriptRoot
 $qt = if ($env:LOCALFLIX_QT_DIR) { $env:LOCALFLIX_QT_DIR } else { 'D:\Qt\6.7.3\msvc2019_64' }
 $version = (Select-String -Path (Join-Path $root 'CMakeLists.txt') -Pattern '^\s+VERSION\s+([0-9.]+)' | Select-Object -First 1).Matches[0].Groups[1].Value
-$dist = Join-Path $root 'dist\LocalFlix'
+$outRoot = if ([IO.Path]::IsPathRooted($OutDir)) { $OutDir } else { Join-Path $root $OutDir }
+$dist = Join-Path $outRoot 'LocalFlix'
 $build = Join-Path $root 'build\Release'
 
 Write-Host '== building (Release)'
@@ -22,7 +28,10 @@ Write-Host '== building (Release)'
 if ($LASTEXITCODE -ne 0) { throw 'build failed' }
 
 Write-Host "== assembling $dist"
-if (Test-Path (Join-Path $root 'dist')) { Remove-Item -Recurse -Force (Join-Path $root 'dist') }
+if (Test-Path $outRoot) {
+    try { Remove-Item -Recurse -Force $outRoot -ErrorAction Stop }
+    catch { throw "Cannot clear $outRoot ($($_.Exception.Message)). Is LocalFlix still running from there? Close it, or use -OutDir <another folder>." }
+}
 New-Item -ItemType Directory -Path $dist | Out-Null
 Copy-Item (Join-Path $build 'localflix.exe') $dist
 Copy-Item (Join-Path $build 'libmpv-2.dll') $dist
@@ -59,7 +68,7 @@ Write-Host '   iconengines:  ' ((Get-ChildItem (Join-Path $dist 'iconengines') -
 
 Write-Host '== smoke test (no Qt on PATH, temporary data folder)'
 $tmpData = Join-Path ([IO.Path]::GetTempPath()) ("localflix-smoke-" + [guid]::NewGuid().ToString('N'))
-$shot = Join-Path $root 'dist\smoke.png'
+$shot = Join-Path $outRoot 'smoke.png'
 $env:LOCALFLIX_DATA_DIR = $tmpData
 $oldPath = $env:PATH
 $env:PATH = ($env:PATH -split ';' | Where-Object { $_ -and ($_ -notmatch 'Qt') }) -join ';'   # prove the package does not rely on a Qt install
@@ -76,6 +85,9 @@ Remove-Item -Recurse -Force $tmpData -ErrorAction SilentlyContinue
 Write-Host "   OK: exit 0, library.db created, screenshot $((Get-Item $shot).Length) bytes"
 
 Write-Host '== zipping'
-$zip = Join-Path $root "dist\LocalFlix-$version-win64.zip"
+$zip = Join-Path $outRoot "LocalFlix-$version-win64.zip"
 Compress-Archive -Path $dist -DestinationPath $zip -CompressionLevel Optimal
 Write-Host ("Package: {0} ({1:N1} MB)" -f $zip, ((Get-Item $zip).Length / 1MB))
+$sha = (Get-FileHash $zip -Algorithm SHA256).Hash.ToLower()
+Set-Content -Path "$zip.sha256" -Value "$sha  $(Split-Path -Leaf $zip)" -Encoding ascii
+Write-Host "SHA-256: $sha"
