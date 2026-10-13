@@ -19,3 +19,15 @@ CMakeUserPresets.json
 # python bytecode
 __pycache__/
 *.pyc
+
+# android (see android/README.md)
+android/.gradle/
+android/.kotlin/
+android/local.properties
+android/**/build/
+android/captures/
+*.apk
+*.aab
+*.keystore
+*.jks
+android/keystore.properties
