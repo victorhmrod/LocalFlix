@@ -71,7 +71,8 @@ test.cmd Release -R tst_library      :: one suite
 | `tst_library` | import, duplicates, stable ids, manual ordering, moves between seasons, deletion never touches files, relinking moved files/folders, collections |
 | `tst_progress` | saving/restoring positions, write throttling, completion, resume target, Continue Watching |
 | `tst_playback` | `PlaybackController` with a scripted backend: natural end vs. stop vs. error, stale/duplicate events, countdown, reorder during countdown, resume modes, missing files, auto-play settings |
-| `tst_mpv_backend` | the **real libmpv** on real clips (mp4/mkv/webm/avi/mov): EOF/stop/error reasons and tokens, start offsets, tracks, speed/volume, full series and resume flows |
+| `tst_skip` | skip intro/ending: chapter-title classification, segment detection, and the controller rules (button state, automatic skip at most once, never while paused, endings finish only through end-of-file) |
+| `tst_mpv_backend` | the **real libmpv** on real clips (mp4/mkv/webm/avi/mov): EOF/stop/error reasons and tokens, start offsets, tracks, chapters, speed/volume, seek-to-end = EOF, skip intro/ending, full series and resume flows |
 | `tst_ui_e2e` | the §16 acceptance scenario through the **real window** with real libmpv: create, import, reorder, play, seek, close, reopen, resume, auto-advance, fullscreen/auto-hide/shortcuts, relink. Opens a window for ~30 s and writes screenshots to `build\Release\e2e-shots` |
 
 The UI test renders with Qt's software OpenGL so it behaves the same on every machine
@@ -128,13 +129,26 @@ installed on the machine. `-SkipPackage` reuses the staging folder, `-SkipTest` 
 | `M` | mute | `A` | cycle audio tracks |
 | `F` / `F11` / `Alt+Enter` / double-click | fullscreen | `0`–`9` | jump to 0 %–90 % |
 | `Esc` | leave fullscreen, then leave the player | click | play / pause |
+| `Enter` | press **Skip Intro** / **Skip Ending** while the button is shown | | |
 
 Library: `Ctrl+1…6` switch screens, `Del` removes the selected episodes from the library (files are kept).
+
+### Skipping openings and endings
+
+When the file has chapters titled like an opening or an ending (`Opening`, `OP`, `OP1`, `Intro`, `Abertura` /
+`Ending`, `ED`, `Credits`, `Créditos`, `Encerramento`…), a **Skip Intro** / **Skip Ending** button appears at the
+bottom right while the video is inside it (click it or press `Enter`). Two options in *Settings → Playback* skip them
+by themselves; both are off by default. Skipping an opening jumps to the next chapter. Skipping an ending that lasts
+until the end of the file seeks to the end, so the episode finishes and the next one starts exactly as if it had been
+watched (including the countdown); an ending followed by its own chapter, such as a post-credits scene, jumps to that
+chapter and keeps playing. Automatic skipping happens at most once per opening/ending and never after you seek into it
+yourself. Files without such chapters (most plain downloads) have nothing to skip: detection reads the chapters,
+it does not analyse audio or video.
 
 ### Settings
 
 Auto-play next episode and its countdown (0–30 s); resume automatically or ask; skip already-completed episodes when
-advancing; preferred audio/subtitle language; default volume and speed; fullscreen behaviour (manual / start in
+advancing; automatically skip openings and endings; preferred audio/subtitle language; default volume and speed; fullscreen behaviour (manual / start in
 fullscreen / remember); default import folder; a file check that finds moved or missing files.
 
 ### Where things are stored
@@ -175,6 +189,7 @@ Architecture, threading rules, the SQLite schema and the reasoning behind the ma
 * Windows only; x64 only. Needs a GPU/driver that can present OpenGL 3.3 (or use `--software-opengl`).
 * Hardware decoding is requested with libmpv's `hwdec=auto-safe`; which decoder is actually used depends on mpv and your GPU driver (the automated tests only exercise software decoding).
 * Episode thumbnails and metadata lookup are not implemented (descriptions and covers are manual, by design: no internet).
+* Skip intro/ending works from the file's embedded chapters only; there is no audio fingerprinting and no manual marking, so a file with no (or unlabelled) chapters shows no Skip button.
 * Subtitles/audio selections are remembered per file, not globally.
 * Progress positions shorter than 5 s are not resumed (a deliberate rule so an accidental click does not hijack "Continue").
 

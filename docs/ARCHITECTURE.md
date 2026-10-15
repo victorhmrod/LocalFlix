@@ -28,7 +28,7 @@ headless mode (`vo=null`, `ao=null`).
 | MediaImportService | `core/MediaImportService` (+ `FilenameParser`) |
 | SettingsManager | `core/SettingsManager` |
 | MainWindow / LibraryView / ShowDetailsView / EpisodeManagerView / PlayerView | `ui/…` same names |
-| (extra) | `ResumeLogic` (series-level resume rule), `LibraryActions` (all interactive library operations), `CardFactory`, `Theme` |
+| (extra) | `ResumeLogic` (series-level resume rule), `SkipSegments` (chapter title → opening/ending), `LibraryActions` (all interactive library operations), `CardFactory`, `Theme` |
 
 ### Ownership and lifetime
 
@@ -52,6 +52,25 @@ playback); `ApplicationController::shutdown()` then stops the workers and closes
 * **Resume rules** (`Progress`, `ResumeLogic`): positions under 5 s are not resumable; completed items replay from 0 and
   stay completed; "Continue" for a show = the most recently watched episode if unfinished, else the next unfinished
   one in the configured order (wrapping), else "Watch again" from the top.
+* **Skipping openings and endings** (`SkipSegments`, `PlaybackController`). Segments come only from the chapters in the
+  file (`IPlaybackBackend::chapters()`, libmpv's `chapter-list`); nothing is stored in the database, so there is no
+  schema for it. `classifyChapterTitle` decides from whole words in the title (`OP` is an opening, `Operation` is not;
+  `Opening Night` and `Post-Credits Scene` are content). A segment lasts until the next chapter that is not part of it;
+  a `Preview` chapter right after an ending belongs to the ending. The controller offers the segment the playhead is in
+  (`skipSegmentChanged`) and skips it when the user asks or the setting is on, with these rules:
+  * **Completion stays event-based.** An ending that runs to the end of the file is skipped by *seeking to the end*;
+    the engine then reports `END_FILE(Eof)` (`keep-open=no`, proven by `tst_mpv_backend`) and the normal path completes
+    the item, runs the countdown and advances, or finishes the queue / shows "Finished" when auto-play is off. The skip
+    itself never completes anything, so stopping right after it leaves the episode unfinished. An ending followed by
+    its own chapter (post-credits scene) is skipped to the start of that chapter and playback continues.
+  * **At most once per segment per load.** A skipped segment, and any segment the user seeks into, is remembered in
+    `m_handled` until the next load, so stale position events after the seek cannot loop and seeking back into a skipped
+    opening is left alone.
+  * **Only while `Playing`.** Not paused, loading or counting down; the button itself also works while paused. Skipping
+    an ending that runs to the end of the file while paused resumes first: libmpv seeked to the end *while paused*
+    parks on the last frame and never reports the end of the file (also covered by `tst_mpv_backend`).
+  * Chapters are read from the backend when `fileLoaded` arrives (the backend refreshes them first), and again when
+    they or the duration change; segments are cleared when a file ends or is replaced.
 * **Saving** (`PlaybackProgressManager`): in-memory position, written at most every 5 s and only if it moved ≥ 1 s;
   immediately on pause, switching, stopping and shutdown. Opening something and leaving within 2 s creates no history.
   The file's duration is stored once on `media_files`, not with every save.

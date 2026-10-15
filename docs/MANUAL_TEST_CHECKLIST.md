@@ -36,6 +36,14 @@ launching `localflix.exe` (or delete `%APPDATA%\LocalFlix`).
 * Settings: auto-play off → "Finished" card with *Play next*; resume off → asks "Resume from … / Start over"; skip completed on → auto-advance skips watched episodes (the **Next** button does not).
 * Audio track menu and subtitle menu list the tracks of **files with several audio tracks / embedded subtitles**;
   switching works and is remembered per file; **Load external subtitle…** works; a `.srt` next to the video loads automatically.
+* **Skip Intro / Skip Ending** (needs files whose chapters are titled `Opening`/`OP`/`Intro` and `Ending`/`ED`/`Credits`,
+  e.g. a fansub `.mkv` or a Blu-ray rip; check with *Audio/Video → Chapters* in any other player if unsure):
+  the button appears bottom right while the playhead is inside one and disappears when it leaves; clicking it or `Enter`
+  jumps to the next chapter; with the options off nothing is skipped by itself. Turn on *Automatically skip openings* and
+  *endings* in Settings: the opening is skipped as soon as it starts (an "Skipped intro" note flashes), the ending is
+  skipped and the next episode starts (after the usual countdown); seeking back into a skipped opening plays it. On the
+  last episode, or with auto-play off, skipping the ending ends the episode ("That's everything" / "Finished"). A file
+  with a post-credits scene in its own chapter keeps playing the scene. Files with no chapters show no button.
 * Speed menu, `[` `]`, volume (wheel, ↑/↓), mute (`M`), `0`–`9` jump keys.
 * Fullscreen (`F`, button, double-click): controls and cursor hide after ~3 s of no movement and return on movement; `Esc` leaves fullscreen first, then the player.
 
@@ -55,6 +63,9 @@ launching `localflix.exe` (or delete `%APPDATA%\LocalFlix`).
 * **Dropping files/folders from Explorer** onto a show page, the Movies page and the TV Shows page.
 * **Audible audio** (the tests run with a null audio device) and A/V sync on a long video.
 * **Files with several audio tracks / embedded subtitle tracks** (the generated clips have one audio track; only the sidecar `.srt` path is tested).
+* **Skip Intro / Skip Ending on real releases.** The automated tests give a generated clip its chapters through an mpv EDL
+  file (Opening 0–8 s, Ending to the end); how real fansub/Blu-ray chapter titles are named is only checked against the
+  title table in `tst_skip`, so try a few of your own files.
 * **The file dialogs**: *Add files/folder*, *Locate missing file*, *Load subtitle*, *Choose image*, *Browse…* (the underlying calls are tested, the native dialogs are not).
 * **Hardware OpenGL presentation on your GPU.** The automated run renders with Qt's software OpenGL. If the window
   appears blank on your machine, launch with `localflix.exe --software-opengl` and report your GPU/driver.
