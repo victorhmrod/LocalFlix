@@ -19,6 +19,8 @@ PlaybackController::PlaybackController(IPlaybackBackend* backend, EpisodeQueueMa
     qRegisterMetaType<lf::QueueEntry>("lf::QueueEntry");
     qRegisterMetaType<lf::EndFileInfo>("lf::EndFileInfo");
     qRegisterMetaType<QVector<lf::TrackInfo>>("QVector<lf::TrackInfo>");
+    qRegisterMetaType<QVector<lf::ChapterInfo>>("QVector<lf::ChapterInfo>");
+    qRegisterMetaType<lf::SkipSegment>("lf::SkipSegment");
 
     connect(m_backend, &IPlaybackBackend::fileLoaded, this, &PlaybackController::onFileLoaded);
     connect(m_backend, &IPlaybackBackend::endFile, this, &PlaybackController::onEndFile);
@@ -26,6 +28,7 @@ PlaybackController::PlaybackController(IPlaybackBackend* backend, EpisodeQueueMa
     connect(m_backend, &IPlaybackBackend::durationChanged, this, &PlaybackController::onDuration);
     connect(m_backend, &IPlaybackBackend::pausedChanged, this, &PlaybackController::onPausedChanged);
     connect(m_backend, &IPlaybackBackend::tracksChanged, this, &PlaybackController::tracksChanged);
+    connect(m_backend, &IPlaybackBackend::chaptersChanged, this, &PlaybackController::onChapters);
     connect(m_queue, &EpisodeQueueManager::queueChanged, this, &PlaybackController::onQueueChanged);
 
     m_advanceTimer.setSingleShot(true);
@@ -124,6 +127,7 @@ void PlaybackController::finishActiveItem(FlushReason reason)
 {
     m_progress->end(reason);
     m_token = 0;
+    clearSegments();
 }
 
 // ------------------------------------------------------------------ backend events
@@ -144,6 +148,12 @@ void PlaybackController::onFileLoaded(quint64 token)
 
     emit nowPlaying(m_current, hasPrevious(), hasNext());
     emit positionChanged(m_positionMs, m_durationMs);
+
+    // Chapters are known by now. Starting (or resuming) inside an opening may
+    // skip it right away, so this comes after the UI knows what is playing.
+    m_chapters = m_backend->chapters();
+    rebuildSegments();
+    updateActiveSegment();
 }
 
 void PlaybackController::onEndFile(lf::EndFileInfo info)
@@ -155,6 +165,7 @@ void PlaybackController::onEndFile(lf::EndFileInfo info)
         return;
     }
     m_token = 0;
+    clearSegments();
     const bool neverStarted = m_state == PlaybackState::Loading;
 
     switch (info.reason) {
@@ -242,6 +253,7 @@ void PlaybackController::onPosition(double seconds)
     m_positionMs = qint64(seconds * 1000.0);
     m_progress->update(m_positionMs, m_durationMs);
     emit positionChanged(m_positionMs, m_durationMs);
+    updateActiveSegment();
 }
 
 void PlaybackController::onDuration(double seconds)
@@ -251,6 +263,19 @@ void PlaybackController::onDuration(double seconds)
     m_durationMs = qint64(seconds * 1000.0);
     m_progress->update(m_positionMs, m_durationMs);
     emit positionChanged(m_positionMs, m_durationMs);
+    // the end of a last chapter is the duration
+    rebuildSegments();
+    updateActiveSegment();
+}
+
+void PlaybackController::onChapters(QVector<ChapterInfo> chapters)
+{
+    // While loading, onFileLoaded() reads them from the backend; at any other
+    // time they belong to a file that is no longer ours.
+    if (m_state != PlaybackState::Playing && m_state != PlaybackState::Paused) return;
+    m_chapters = std::move(chapters);
+    rebuildSegments();
+    updateActiveSegment();
 }
 
 void PlaybackController::onPausedChanged(bool paused)
@@ -347,9 +372,16 @@ void PlaybackController::seekToMs(qint64 positionMs)
     if (m_state != PlaybackState::Playing && m_state != PlaybackState::Paused) return;
     qint64 target = std::max<qint64>(0, positionMs);
     if (m_durationMs > 0) target = std::min(target, m_durationMs);
-    m_positionMs = target;
+    markSegmentsHandledAt(target);  // the user went there on purpose: no automatic skip out of it
+    seekTo(target);
+    updateActiveSegment();
+}
+
+void PlaybackController::seekTo(qint64 targetMs)
+{
+    m_positionMs = targetMs;
     m_progress->update(m_positionMs, m_durationMs);  // so an immediate quit saves the new spot
-    m_backend->seekAbsolute(double(target) / 1000.0);
+    m_backend->seekAbsolute(double(targetMs) / 1000.0);
     emit positionChanged(m_positionMs, m_durationMs);
 }
 
@@ -359,10 +391,90 @@ void PlaybackController::seekByMs(qint64 deltaMs)
     qint64 target = m_positionMs + deltaMs;
     target = std::max<qint64>(0, target);
     if (m_durationMs > 0) target = std::min(target, m_durationMs);
+    markSegmentsHandledAt(target);
     m_positionMs = target;
     m_progress->update(m_positionMs, m_durationMs);
     m_backend->seekRelative(double(deltaMs) / 1000.0);
     emit positionChanged(m_positionMs, m_durationMs);
+    updateActiveSegment();
+}
+
+// ------------------------------------------------------------------ opening / ending
+
+bool PlaybackController::autoSkipEnabled(SegmentKind kind) const
+{
+    return kind == SegmentKind::Intro ? m_settings->autoSkipIntro() : m_settings->autoSkipEnding();
+}
+
+void PlaybackController::clearSegments()
+{
+    m_chapters.clear();
+    m_segments.clear();
+    m_handled.clear();
+    if (m_activeSegment.valid()) {
+        m_activeSegment = SkipSegment{};
+        emit skipSegmentChanged(m_activeSegment);
+    }
+}
+
+void PlaybackController::rebuildSegments()
+{
+    m_segments = detectSkipSegments(m_chapters, m_durationMs);
+}
+
+void PlaybackController::markSegmentsHandledAt(qint64 positionMs)
+{
+    for (const SkipSegment& s : m_segments)
+        if (s.contains(positionMs)) m_handled.insert(s.startMs);
+}
+
+// Tracks which opening/ending the playhead is in (the Skip button follows it)
+// and, if the setting asks for it, skips it. An automatic skip happens at most
+// once per segment and only while playing, never while paused, loading or
+// counting down; seeking back into a segment that was skipped leaves it alone.
+void PlaybackController::updateActiveSegment()
+{
+    SkipSegment inside;
+    if (m_state == PlaybackState::Playing || m_state == PlaybackState::Paused) {
+        for (const SkipSegment& s : m_segments) {
+            if (s.contains(m_positionMs)) {
+                inside = s;
+                break;
+            }
+        }
+    }
+
+    const SkipSegment& was = m_activeSegment;
+    if (inside.kind != was.kind || inside.startMs != was.startMs || inside.endMs != was.endMs || inside.toEnd != was.toEnd) {
+        m_activeSegment = inside;
+        emit skipSegmentChanged(inside);
+    }
+
+    if (inside.valid() && m_state == PlaybackState::Playing && autoSkipEnabled(inside.kind) && !m_handled.contains(inside.startMs))
+        skipSegment(inside, /*automatic=*/true);
+}
+
+void PlaybackController::skipActiveSegment()
+{
+    if (m_activeSegment.valid()) skipSegment(m_activeSegment, /*automatic=*/false);
+}
+
+void PlaybackController::skipSegment(const SkipSegment& segment, bool automatic)
+{
+    if (m_state != PlaybackState::Playing && m_state != PlaybackState::Paused) return;
+    m_handled.insert(segment.startMs);
+    // For an ending that runs to the end of the file this seeks to the very end:
+    // the engine then reports a natural end-of-file, which completes the item and
+    // advances exactly as if it had been watched. Nothing here completes anything.
+    qint64 target = segment.endMs;
+    if (m_durationMs > 0) target = std::min(target, m_durationMs);
+    qCInfo(lcPlayback) << (automatic ? "auto-skip" : "skip") << segment.noun() << segment.startMs << "->" << target << "ms";
+    // A paused engine seeked to the end parks on the last frame and never reports the end of the file
+    // (checked against libmpv in tst_mpv_backend), so the ending would not finish. Resume first.
+    if (segment.toEnd && m_state == PlaybackState::Paused) m_backend->setPaused(false);
+    seekTo(target);
+    emit segmentSkipped(segment, automatic);
+    updateActiveSegment();
 }
 
 void PlaybackController::shutdown()

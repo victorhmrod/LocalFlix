@@ -28,6 +28,8 @@ add_library(localflix_core STATIC
     ResumeLogic.h
     SettingsManager.cpp
     SettingsManager.h
+    SkipSegments.cpp
+    SkipSegments.h
     SqlUtil.h
     Types.h
 )

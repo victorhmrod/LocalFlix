@@ -202,4 +202,28 @@ inline QueueContext showContext(Id showId)
     return {ContextType::Show, showId};
 }
 
+// A 40 s clip with chapters, for the tests that use the real engine: Opening 0-8 s, Episode 8-14 s,
+// Ending 14-40 s (to the end of the file). It is an mpv EDL playlist over `sourceVideo` (the generated
+// 40 s clip), which mpv plays like any other file (it is recognised by its content, not its name), so
+// the chapters need no tool besides mpv itself. Returns the path of the file written into `dir`.
+inline QString writeChapteredClip(const QString& sourceVideo, const QString& dir)
+{
+    const QByteArray source = QDir::fromNativeSeparators(sourceVideo).toUtf8();
+    const QString out = QDir(dir).filePath(QStringLiteral("chaptered_episode.mkv"));
+    QFile f(out);
+    if (!f.open(QIODevice::WriteOnly)) return {};
+    f.write("# mpv EDL v0\n");
+    struct Part {
+        const char* title;
+        int start;
+        int length;
+    };
+    for (const Part& p : {Part{"Opening", 0, 8}, Part{"Episode", 8, 6}, Part{"Ending", 14, 26}}) {
+        // "%<byte length>%" lets the path contain any character
+        f.write("%" + QByteArray::number(source.size()) + "%" + source + "," + QByteArray::number(p.start) + "," + QByteArray::number(p.length) +
+                ",title=" + p.title + "\n");
+    }
+    return out;
+}
+
 }  // namespace lf::test

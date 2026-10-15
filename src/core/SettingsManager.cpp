@@ -15,6 +15,8 @@ QString defaultFor(const QString& key)
         {SettingKey::AutoPlayCountdown, QStringLiteral("3")},
         {SettingKey::ResumeAutomatically, QStringLiteral("1")},
         {SettingKey::SkipCompleted, QStringLiteral("0")},
+        {SettingKey::AutoSkipIntro, QStringLiteral("0")},
+        {SettingKey::AutoSkipEnding, QStringLiteral("0")},
         {SettingKey::PreferredAudioLanguage, QString()},
         {SettingKey::PreferredSubtitleLanguage, QString()},
         {SettingKey::DefaultVolume, QStringLiteral("100")},
@@ -75,6 +77,8 @@ bool SettingsManager::autoPlayNext() const { return get(SettingKey::AutoPlayNext
 int SettingsManager::autoPlayCountdownSeconds() const { return qBound(0, get(SettingKey::AutoPlayCountdown).toInt(), 30); }
 bool SettingsManager::resumeAutomatically() const { return get(SettingKey::ResumeAutomatically).toInt() != 0; }
 bool SettingsManager::skipCompleted() const { return get(SettingKey::SkipCompleted).toInt() != 0; }
+bool SettingsManager::autoSkipIntro() const { return get(SettingKey::AutoSkipIntro).toInt() != 0; }
+bool SettingsManager::autoSkipEnding() const { return get(SettingKey::AutoSkipEnding).toInt() != 0; }
 QString SettingsManager::preferredAudioLanguage() const { return get(SettingKey::PreferredAudioLanguage).toString(); }
 QString SettingsManager::preferredSubtitleLanguage() const { return get(SettingKey::PreferredSubtitleLanguage).toString(); }
 int SettingsManager::defaultVolume() const { return qBound(0, get(SettingKey::DefaultVolume).toInt(), 130); }

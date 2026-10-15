@@ -44,6 +44,11 @@ bool samePath(const QString& a, const QString& b)
     return QDir::cleanPath(a).compare(QDir::cleanPath(b), Qt::CaseInsensitive) == 0;
 }
 
+QString writeChapteredClip(const QString& dir)
+{
+    return lf::test::writeChapteredClip(videoPath(QStringLiteral("long_resume_test.mkv")), dir);
+}
+
 }  // namespace
 
 class TstMpvBackend : public QObject {
@@ -285,6 +290,95 @@ private slots:
         QVERIFY(!b.addExternalSubtitle(QDir(dir.path()).filePath(QStringLiteral("nope.srt"))));
     }
 
+    // ---- chapters, and skipping an ending that runs to the end of the file ----
+
+    void chaptersAreKnownWhenTheFileIsLoadedAndForgottenWhenItEnds()
+    {
+        QTemporaryDir dir;
+        const QString clip = writeChapteredClip(dir.path());
+        QVERIFY(!clip.isEmpty());
+
+        MpvBackend b(headless());
+        QSignalSpy loaded(&b, &IPlaybackBackend::fileLoaded);
+        QSignalSpy changed(&b, &IPlaybackBackend::chaptersChanged);
+        QSignalSpy ended(&b, &IPlaybackBackend::endFile);
+        int chaptersAtLoad = -1;  // what a fileLoaded listener sees: the controller relies on this
+        connect(&b, &IPlaybackBackend::fileLoaded, &b, [&] { chaptersAtLoad = int(b.chapters().size()); });
+
+        b.loadFile(clip, 0);
+        QVERIFY(waitFor([&] { return loaded.count() >= 1; }, 15000));
+        QCOMPARE(chaptersAtLoad, 3);
+        const QVector<ChapterInfo> chapters = b.chapters();
+        QCOMPARE(chapters.size(), 3);
+        QCOMPARE(chapters[0].title, QStringLiteral("Opening"));
+        QCOMPARE(chapters[1].title, QStringLiteral("Episode"));
+        QCOMPARE(chapters[2].title, QStringLiteral("Ending"));
+        QVERIFY(qAbs(chapters[0].startSeconds - 0.0) < 0.05);
+        QVERIFY(qAbs(chapters[1].startSeconds - 8.0) < 0.05);
+        QVERIFY(qAbs(chapters[2].startSeconds - 14.0) < 0.05);
+        QVERIFY(changed.count() >= 1);
+
+        // the chapter titles say what they are
+        const auto segments = detectSkipSegments(chapters, qint64(b.durationSeconds() * 1000.0));
+        QCOMPARE(segments.size(), 2);
+        QCOMPARE(int(segments[0].kind), int(SegmentKind::Intro));
+        QCOMPARE(int(segments[1].kind), int(SegmentKind::Ending));
+        QVERIFY(segments[1].toEnd);
+
+        b.stop();
+        QVERIFY(waitFor([&] { return ended.count() >= 1; }, 12000));
+        QVERIFY(b.chapters().isEmpty());
+        QVERIFY(changed.last().at(0).value<QVector<ChapterInfo>>().isEmpty());
+    }
+
+    void aFileWithoutChaptersReportsNone()
+    {
+        MpvBackend b(headless());
+        QSignalSpy loaded(&b, &IPlaybackBackend::fileLoaded);
+        b.loadFile(videoPath(QStringLiteral("video_27.mkv")), 0);
+        QVERIFY(waitFor([&] { return loaded.count() >= 1; }, 15000));
+        QVERIFY(b.chapters().isEmpty());
+    }
+
+    void seekingToTheDurationEndsTheFileWithEofNotWithAStop_data()
+    {
+        QTest::addColumn<bool>("pausedBefore");
+        QTest::newRow("playing") << false;
+        // A seek to the end while the engine is still *paused* does not end the file (it parks on the last frame),
+        // which is why the controller resumes before skipping an ending; this is the sequence it performs.
+        QTest::newRow("paused, then resumed") << true;
+    }
+
+    void seekingToTheDurationEndsTheFileWithEofNotWithAStop()
+    {
+        // This is what "skip ending" does for an ending that lasts until the end of the file. The clip is 40 s
+        // long, so an end that arrives within seconds can only be the seek, and it must be a natural end.
+        QFETCH(bool, pausedBefore);
+        MpvBackend b(headless());
+        QSignalSpy loaded(&b, &IPlaybackBackend::fileLoaded);
+        QSignalSpy ended(&b, &IPlaybackBackend::endFile);
+        const quint64 token = b.loadFile(videoPath(QStringLiteral("long_resume_test.mkv")), 0);
+        QVERIFY(waitFor([&] { return loaded.count() >= 1; }, 15000));
+        QVERIFY(b.durationSeconds() > 30);
+        if (pausedBefore) {
+            b.setPaused(true);
+            QVERIFY(waitFor([&] { return b.isPaused(); }, 12000));
+            b.setPaused(false);
+        }
+
+        QElapsedTimer clock;
+        clock.start();
+        // truncated to milliseconds, like the controller's duration
+        b.seekAbsolute(double(qint64(b.durationSeconds() * 1000.0)) / 1000.0);
+        QVERIFY2(waitFor([&] { return ended.count() >= 1; }, 8000), "the seek to the end did not end the file");
+        QVERIFY(clock.elapsed() < 6000);
+        const auto info = ended.first().at(0).value<EndFileInfo>();
+        QCOMPARE(info.token, token);
+        QCOMPARE(int(info.reason), int(EndReason::Eof));
+        QTest::qWait(500);
+        QCOMPARE(ended.count(), 1);
+    }
+
     // ---- whole pipeline with the real engine (the §16 acceptance flow, minus the UI) ----
 
     void realEngineAdvancesToTheNextEpisodeAndFinishesTheSeries()
@@ -328,6 +422,97 @@ private slots:
         }
         QCOMPARE(app.playback().state(), PlaybackState::Idle);
         for (const QString& f : files) QVERIFY(QFileInfo::exists(f));  // the media files are untouched
+    }
+
+    void realEngineSkipsTheOpeningAndTheEndingByItself()
+    {
+        QTemporaryDir dir;
+        const QString chaptered = writeChapteredClip(dir.path());
+        QVERIFY(!chaptered.isEmpty());
+
+        auto backend = std::make_unique<MpvBackend>(headless());
+        MpvBackend* engine = backend.get();
+        ApplicationController app(QDir(dir.path()).filePath(QStringLiteral("data")), std::move(backend));
+        QVERIFY(app.initialize());
+        app.settings().setAutoPlayCountdownSeconds(0);
+        app.settings().setPlaybackSpeed(4.0);
+        app.settings().setAutoSkipIntro(true);
+        app.settings().setAutoSkipEnding(true);
+
+        const Id showId = app.library().createShow(QStringLiteral("Skips"));
+        // the chaptered clip sorts first; the second episode is a plain 6 s file with no chapters
+        QCOMPARE(app.importer().importEpisodesSync(showId, kInvalidId, {chaptered, videoPath(QStringLiteral("downloaded_episode_04.mp4"))}).added, 2);
+        const auto eps = app.library().episodes(showId);
+        QVERIFY(eps[0].file.path.endsWith(QStringLiteral("chaptered_episode.mkv")));
+
+        auto& pc = app.playback();
+        QStringList order;  // what happened, in order
+        QElapsedTimer sinceEndingSkip;
+        qint64 endingToCompletedMs = -1;
+        connect(&pc, &PlaybackController::segmentSkipped, this, [&](lf::SkipSegment seg, bool automatic) {
+            order << QStringLiteral("skip-%1%2").arg(seg.noun(), automatic ? QStringLiteral("-auto") : QString());
+            if (seg.kind == SegmentKind::Ending) sinceEndingSkip.start();
+        });
+        connect(&pc, &PlaybackController::itemCompleted, this, [&](lf::QueueEntry) {
+            order << QStringLiteral("completed");
+            if (sinceEndingSkip.isValid() && endingToCompletedMs < 0) endingToCompletedMs = sinceEndingSkip.elapsed();
+        });
+        QSignalSpy now(&pc, &PlaybackController::nowPlaying);
+        QSignalSpy finished(&pc, &PlaybackController::queueFinished);
+
+        QVERIFY(pc.play(showContext(showId), eps[0].file.id, StartMode::FromStart));
+        // the opening (0-8 s) is skipped as soon as the file is open
+        QVERIFY(waitFor([&] { return now.count() >= 1; }, 15000));
+        QCOMPARE(pc.skipSegments().size(), 2);
+        QVERIFY2(waitFor([&] { return engine->positionSeconds() >= 7.5; }, 8000), qPrintable(QString::number(engine->positionSeconds())));
+        QVERIFY(order.startsWith(QStringLiteral("skip-intro-auto")));
+
+        // the ending (14 s to the end) is skipped when playback reaches it; the file then ends by itself, long
+        // before its 26 s would have played (at 4x speed they would still take 6.5 s)
+        QVERIFY2(waitFor([&] { return order.contains(QStringLiteral("skip-ending-auto")); }, 30000), qPrintable(order.join(QLatin1Char(','))));
+        QVERIFY2(waitFor([&] { return endingToCompletedMs >= 0; }, 10000), "the episode did not end after its ending was skipped");
+        QVERIFY2(endingToCompletedMs < 4000, qPrintable(QString::number(endingToCompletedMs)));
+        QCOMPARE(order, QStringList({QStringLiteral("skip-intro-auto"), QStringLiteral("skip-ending-auto"), QStringLiteral("completed")}));
+        QVERIFY(app.library().episode(eps[0].id)->progress.completed);
+
+        // and the next episode starts through the normal end-of-file path, then plays out untouched
+        QVERIFY2(waitFor([&] { return finished.count() >= 1; }, 30000), "the series did not finish");
+        QCOMPARE(now.count(), 2);
+        QCOMPARE(now.at(1).at(0).value<QueueEntry>().mediaFileId, eps[1].file.id);
+        QCOMPARE(order.size(), 4);  // ep 2 has no chapters: nothing else was skipped
+        for (const Episode& e : app.library().episodes(showId)) QVERIFY(e.progress.completed);
+    }
+
+    void realEngineSkippingTheEndingWhilePausedStillFinishesTheEpisode()
+    {
+        QTemporaryDir dir;
+        const QString chaptered = writeChapteredClip(dir.path());
+        QVERIFY(!chaptered.isEmpty());
+
+        ApplicationController app(QDir(dir.path()).filePath(QStringLiteral("data")), std::make_unique<MpvBackend>(headless()));
+        QVERIFY(app.initialize());
+        app.settings().setAutoPlayCountdownSeconds(0);
+        const Id showId = app.library().createShow(QStringLiteral("Paused skip"));
+        QCOMPARE(app.importer().importEpisodesSync(showId, kInvalidId, {chaptered}).added, 1);
+        const Episode ep = app.library().episodes(showId).first();
+        app.library().saveProgress(ep.file.id, 16000, 40000);  // 16 s in: inside the ending (14 s - end), resumable
+
+        auto& pc = app.playback();
+        QSignalSpy now(&pc, &PlaybackController::nowPlaying);
+        QSignalSpy completed(&pc, &PlaybackController::itemCompleted);
+        QSignalSpy finished(&pc, &PlaybackController::queueFinished);
+        QVERIFY(pc.play(showContext(showId), ep.file.id, StartMode::Resume));
+        QVERIFY(waitFor([&] { return now.count() >= 1; }, 15000));
+        pc.setPaused(true);
+        QVERIFY(waitFor([&] { return pc.state() == PlaybackState::Paused; }, 12000));
+        QVERIFY2(waitFor([&] { return pc.activeSegment().valid(); }, 8000), "the Skip Ending button is not offered while paused");
+        QCOMPARE(int(pc.activeSegment().kind), int(SegmentKind::Ending));
+
+        pc.skipActiveSegment();
+        // the clip has 24 s left: finishing within seconds means the skip got through despite the pause
+        QVERIFY2(waitFor([&] { return finished.count() >= 1; }, 10000), "Skip Ending while paused did not finish the episode");
+        QCOMPARE(completed.count(), 1);
+        QVERIFY(app.library().episode(ep.id)->progress.completed);
     }
 
     void realEngineResumesWhereTheApplicationWasClosed()

@@ -19,6 +19,8 @@ inline const QString AutoPlayNext = QStringLiteral("playback.autoPlayNext");
 inline const QString AutoPlayCountdown = QStringLiteral("playback.autoPlayCountdownSeconds");
 inline const QString ResumeAutomatically = QStringLiteral("playback.resumeAutomatically");
 inline const QString SkipCompleted = QStringLiteral("playback.skipCompleted");
+inline const QString AutoSkipIntro = QStringLiteral("playback.autoSkipIntro");
+inline const QString AutoSkipEnding = QStringLiteral("playback.autoSkipEnding");
 inline const QString PreferredAudioLanguage = QStringLiteral("playback.preferredAudioLanguage");
 inline const QString PreferredSubtitleLanguage = QStringLiteral("playback.preferredSubtitleLanguage");
 inline const QString DefaultVolume = QStringLiteral("playback.defaultVolume");
@@ -40,6 +42,8 @@ public:
     int autoPlayCountdownSeconds() const;
     bool resumeAutomatically() const;
     bool skipCompleted() const;
+    bool autoSkipIntro() const;
+    bool autoSkipEnding() const;
     QString preferredAudioLanguage() const;
     QString preferredSubtitleLanguage() const;
     int defaultVolume() const;
@@ -53,6 +57,8 @@ public:
     void setAutoPlayCountdownSeconds(int v) { set(SettingKey::AutoPlayCountdown, qBound(0, v, 30)); }
     void setResumeAutomatically(bool v) { set(SettingKey::ResumeAutomatically, v); }
     void setSkipCompleted(bool v) { set(SettingKey::SkipCompleted, v); }
+    void setAutoSkipIntro(bool v) { set(SettingKey::AutoSkipIntro, v); }
+    void setAutoSkipEnding(bool v) { set(SettingKey::AutoSkipEnding, v); }
     void setPreferredAudioLanguage(const QString& v) { set(SettingKey::PreferredAudioLanguage, v.trimmed()); }
     void setPreferredSubtitleLanguage(const QString& v) { set(SettingKey::PreferredSubtitleLanguage, v.trimmed()); }
     void setDefaultVolume(int v) { set(SettingKey::DefaultVolume, qBound(0, v, 130)); }

@@ -5,9 +5,11 @@
 #include "LibraryManager.h"
 #include "PlaybackProgressManager.h"
 #include "SettingsManager.h"
+#include "SkipSegments.h"
 
 #include <QElapsedTimer>
 #include <QObject>
+#include <QSet>
 #include <QTimer>
 
 namespace lf {
@@ -64,6 +66,10 @@ public:
     void advanceNow();
     // Cancels the pending automatic advance; playback stays stopped.
     void cancelAutoAdvance();
+    // Skips the opening/ending the playhead is in (the "Skip" button). Playing
+    // an ending that runs to the end of the file seeks to the end, so the item
+    // then completes and advances through the normal end-of-file path.
+    void skipActiveSegment();
     // Flushes progress and stops the backend; safe to call more than once.
     void shutdown();
 
@@ -79,6 +85,10 @@ public:
     QueueEntry currentEntry() const { return m_current; }
     qint64 positionMs() const { return m_positionMs; }
     qint64 durationMs() const { return m_durationMs; }
+    // The opening/ending the playhead is in right now (invalid when none).
+    SkipSegment activeSegment() const { return m_activeSegment; }
+    // Every opening/ending found in the current file's chapters.
+    QVector<SkipSegment> skipSegments() const { return m_segments; }
     bool hasNext() const;
     bool hasPrevious() const;
     IPlaybackBackend* backend() const { return m_backend; }
@@ -89,6 +99,10 @@ signals:
     void nowPlaying(lf::QueueEntry entry, bool hasPrevious, bool hasNext);
     void positionChanged(qint64 positionMs, qint64 durationMs);
     void tracksChanged(QVector<lf::TrackInfo> tracks);
+    // The playhead entered or left an opening/ending (an invalid segment = left).
+    void skipSegmentChanged(lf::SkipSegment segment);
+    // An opening/ending was skipped, by the user or automatically.
+    void segmentSkipped(lf::SkipSegment segment, bool automatic);
     // The item played to its natural end and was marked completed.
     void itemCompleted(lf::QueueEntry entry);
     // A countdown to the next item started (or its target changed).
@@ -111,6 +125,7 @@ private slots:
     void onEndFile(lf::EndFileInfo info);
     void onPosition(double seconds);
     void onDuration(double seconds);
+    void onChapters(QVector<lf::ChapterInfo> chapters);
     void onPausedChanged(bool paused);
     void onQueueChanged();
     void onAdvanceTimeout();
@@ -122,6 +137,13 @@ private:
     void handleNaturalEnd();
     void startPendingAdvance();
     QueueEntry nextForAdvance() const;
+    void seekTo(qint64 targetMs);
+    void rebuildSegments();
+    void clearSegments();
+    void updateActiveSegment();
+    void markSegmentsHandledAt(qint64 positionMs);
+    void skipSegment(const SkipSegment& segment, bool automatic);
+    bool autoSkipEnabled(SegmentKind kind) const;
 
     IPlaybackBackend* m_backend;
     EpisodeQueueManager* m_queue;
@@ -135,6 +157,14 @@ private:
     qint64 m_positionMs = 0;
     qint64 m_durationMs = 0;
     bool m_trackingPosition = true;
+
+    // Openings/endings of the current file, from its chapters. A segment whose
+    // start is in m_handled is never skipped automatically again: it was skipped
+    // already, or the user seeked into it on purpose. Both reset with every load.
+    QVector<ChapterInfo> m_chapters;
+    QVector<SkipSegment> m_segments;
+    SkipSegment m_activeSegment;
+    QSet<qint64> m_handled;
 
     QTimer m_advanceTimer;
     QElapsedTimer m_advanceClock;
