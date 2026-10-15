@@ -68,6 +68,8 @@ private slots:
     void onTracks(QVector<lf::TrackInfo> tracks);
     void onAutoAdvancePending(lf::QueueEntry next, int remainingMs);
     void onAutoAdvanceCancelled();
+    void onSkipSegmentChanged(lf::SkipSegment segment);
+    void onSegmentSkipped(lf::SkipSegment segment, bool automatic);
     void onQueueFinished(lf::QueueEntry last);
     void onEndedWithoutAdvance(lf::QueueEntry finished, lf::QueueEntry next);
     void onStopped(lf::QueueEntry entry);
@@ -77,6 +79,7 @@ private:
     void buildUi();
     void buildShortcuts();
     void layoutOverlays();
+    void placeSkipButton();
     QToolButton* makeButton(Icon icon, const QString& tooltip, int iconSize = 26);
     void updateTimeLabels(qint64 positionMs, qint64 durationMs);
     void updateNavigation(bool hasPrevious, bool hasNext);
@@ -125,6 +128,7 @@ private:
     QMenu* m_subtitleMenu;
     QActionGroup* m_speedGroup;
 
+    QPushButton* m_skipButton;  // "Skip Intro" / "Skip Ending", shown while the playhead is in one
     QLabel* m_osd;
     QTimer m_osdTimer;
     QLabel* m_hoverTime;

@@ -19,6 +19,7 @@
 #include "TestSupport.h"
 
 #include <QApplication>
+#include <QCheckBox>
 #include <QDialog>
 #include <QFrame>
 #include <QInputDialog>
@@ -629,6 +630,69 @@ private slots:
         QTest::keyClick(player, Qt::Key_Escape);
         QVERIFY(waitFor([&] { return !player->isVisible(); }, 12000));
         QCOMPARE(s.app->playback().state(), PlaybackState::Idle);
+        s.closeLikeAUser();
+    }
+
+    // Skip Intro / Skip Ending: the options on the Settings page, the button the chapters make appear,
+    // a click on it, and Enter on an ending that runs to the end of the file.
+    void step12_skipOpeningAndEndingFromTheChapters()
+    {
+        QVERIFY(s.start(m_dataDir));
+        auto& lib = s.app->library();
+        auto& pc = s.app->playback();
+        const QString dir = QDir(m_dir.path()).filePath(QStringLiteral("chaptered"));
+        QDir().mkpath(dir);
+        const QString clip = writeChapteredClip(videoPath(QStringLiteral("long_resume_test.mkv")), dir);
+        QVERIFY(!clip.isEmpty());
+        QCOMPARE(s.app->importer().importMoviesSync({LibraryManager::normalizePath(clip)}).added, 1);
+        Movie movie;
+        for (const Movie& m : lib.movies())
+            if (m.file.path.endsWith(QStringLiteral("chaptered_episode.mkv"), Qt::CaseInsensitive)) movie = m;
+        QVERIFY(movie.id != kInvalidId);
+
+        // the two automatic options are off by default and write through when toggled
+        clickButton(s.find<QToolButton>("nav_settings"));
+        auto* autoIntro = s.find<QCheckBox>("AutoSkipIntro");
+        auto* autoEnding = s.find<QCheckBox>("AutoSkipEnding");
+        QVERIFY(autoIntro && autoEnding);
+        QVERIFY(!autoIntro->isChecked() && !autoEnding->isChecked());
+        autoIntro->click();
+        autoEnding->click();
+        QVERIFY(s.app->settings().autoSkipIntro() && s.app->settings().autoSkipEnding());
+        s.shot(QStringLiteral("22_settings_skip_options"));
+        autoIntro->click();
+        autoEnding->click();
+        QVERIFY(!s.app->settings().autoSkipIntro() && !s.app->settings().autoSkipEnding());
+
+        // with both off, the opening is only offered: a "Skip Intro" button, and the video keeps playing
+        QSignalSpy now(&pc, &PlaybackController::nowPlaying);
+        s.window->startPlayback({ContextType::Movie, movie.id}, movie.file.id, StartMode::FromStart);
+        auto* player = s.window->findChild<PlayerView*>();
+        QVERIFY(player);
+        auto* skip = player->findChild<QPushButton*>("SkipSegmentButton");
+        QVERIFY(skip);
+        QVERIFY2(waitFor([&] { return now.count() >= 1 && skip->isVisible(); }, 20000), "no Skip Intro button inside the opening");
+        QCOMPARE(skip->text(), QStringLiteral("Skip Intro"));
+        QVERIFY(s.engine->positionSeconds() < 8.0);
+        s.shot(QStringLiteral("23_skip_intro_button"));
+
+        QTest::mouseClick(skip, Qt::LeftButton);
+        QVERIFY2(waitFor([&] { return s.engine->positionSeconds() >= 8.0; }, 8000), "clicking Skip Intro did not jump past the opening");
+        QVERIFY(waitFor([&] { return !skip->isVisible(); }, 5000));
+
+        // into the ending (14 s - end): the button now reads "Skip Ending"; Enter ends the movie by the
+        // engine's own end-of-file, 25 s before the clip would have ended
+        pc.seekToMs(15000);
+        QVERIFY2(waitFor([&] { return skip->isVisible(); }, 8000), "no Skip Ending button inside the ending");
+        QCOMPARE(skip->text(), QStringLiteral("Skip Ending"));
+        s.shot(QStringLiteral("24_skip_ending_button"));
+        QSignalSpy completed(&pc, &PlaybackController::itemCompleted);
+        QSignalSpy finished(&pc, &PlaybackController::queueFinished);
+        QTest::keyClick(player, Qt::Key_Return);
+        QVERIFY2(waitFor([&] { return finished.count() >= 1; }, 10000), "Enter did not finish the movie");
+        QCOMPARE(completed.count(), 1);
+        QVERIFY(lib.movie(movie.id)->progress.completed);
+        QVERIFY(!skip->isVisible());
         s.closeLikeAUser();
     }
 };

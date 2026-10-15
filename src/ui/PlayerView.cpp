@@ -78,6 +78,8 @@ PlayerView::PlayerView(ApplicationController& app, MpvBackend* backend, QWidget*
     connect(&m_playback, &PlaybackController::tracksChanged, this, &PlayerView::onTracks);
     connect(&m_playback, &PlaybackController::autoAdvancePending, this, &PlayerView::onAutoAdvancePending);
     connect(&m_playback, &PlaybackController::autoAdvanceCancelled, this, &PlayerView::onAutoAdvanceCancelled);
+    connect(&m_playback, &PlaybackController::skipSegmentChanged, this, &PlayerView::onSkipSegmentChanged);
+    connect(&m_playback, &PlaybackController::segmentSkipped, this, &PlayerView::onSegmentSkipped);
     connect(&m_playback, &PlaybackController::queueFinished, this, &PlayerView::onQueueFinished);
     connect(&m_playback, &PlaybackController::playbackEndedWithoutAdvance, this, &PlayerView::onEndedWithoutAdvance);
     connect(&m_playback, &PlaybackController::playbackStopped, this, &PlayerView::onStopped);
@@ -268,6 +270,15 @@ void PlayerView::buildUi()
     m_hoverTime->hide();
     m_card = new CenterCard(this);
     m_card->setObjectName(QStringLiteral("CenterCard"));
+    m_skipButton = new QPushButton(this);
+    m_skipButton->setObjectName(QStringLiteral("SkipSegmentButton"));
+    m_skipButton->setCursor(Qt::PointingHandCursor);
+    m_skipButton->setFocusPolicy(Qt::NoFocus);
+    m_skipButton->setStyleSheet(QStringLiteral(
+        "QPushButton { background: rgba(15,17,21,0.82); color: white; border: 1px solid rgba(255,255,255,0.7); border-radius: 6px;"
+        " padding: 10px 22px; font-size: 13pt; font-weight: 600; }"
+        "QPushButton:hover { background: white; color: black; border-color: white; }"));
+    m_skipButton->hide();
 
     // ---- wiring
     connect(m_prevButton, &QToolButton::clicked, &m_playback, &PlaybackController::previous);
@@ -293,6 +304,7 @@ void PlayerView::buildUi()
         if (m_backend->isMuted() && v > 0) m_playback.setMuted(false);
     });
     connect(m_fullscreenButton, &QToolButton::clicked, this, &PlayerView::fullscreenToggleRequested);
+    connect(m_skipButton, &QPushButton::clicked, this, [this] { m_playback.skipActiveSegment(); });
 
     connect(m_seek, &SeekSlider::scrubbed, this, [this](double f) {
         m_scrubbing = true;
@@ -352,6 +364,8 @@ void PlayerView::buildShortcuts()
         else
             leaveToLibrary();
     });
+    add(Qt::Key_Return, [this] { m_playback.skipActiveSegment(); });  // the Skip button; does nothing outside an opening/ending
+    add(Qt::Key_Enter, [this] { m_playback.skipActiveSegment(); });
     add(Qt::Key_N, [this] { m_playback.next(); });
     add(Qt::Key_PageDown, [this] { m_playback.next(); });
     add(Qt::Key_P, [this] { m_playback.previous(); });
@@ -382,10 +396,21 @@ void PlayerView::layoutOverlays()
     m_card->move((width() - m_card->width()) / 2, std::max(20, (height() - m_card->height()) / 2 - 20));
     m_osd->adjustSize();
     m_osd->move(width() - m_osd->width() - 28, kTopBarHeight + 8);
+    placeSkipButton();
     m_topBar->raise();
     m_controls->raise();
+    m_skipButton->raise();
     m_osd->raise();
     m_card->raise();
+}
+
+// Bottom right, just above the seek bar while the controls are up and near the
+// bottom edge when they are hidden, so it never jumps far when they fade.
+void PlayerView::placeSkipButton()
+{
+    m_skipButton->adjustSize();
+    const int bottom = m_controls->isVisible() ? m_controls->y() + 30 : height() - 40;
+    m_skipButton->move(std::max(8, width() - m_skipButton->width() - 28), std::max(kTopBarHeight, bottom - m_skipButton->height()));
 }
 
 void PlayerView::showEvent(QShowEvent* e)
@@ -432,6 +457,7 @@ void PlayerView::showControls()
     }
     m_video->unsetCursor();
     m_hideTimer.start(kAutoHideMs);
+    placeSkipButton();
 }
 
 void PlayerView::hideControlsIfIdle()
@@ -445,6 +471,7 @@ void PlayerView::hideControlsIfIdle()
     m_topBar->hide();
     m_hoverTime->hide();
     m_video->setCursor(Qt::BlankCursor);  // also hide the pointer while it is idle over the video
+    placeSkipButton();
 }
 
 void PlayerView::showOsd(const QString& text)
@@ -759,6 +786,25 @@ void PlayerView::onAutoAdvanceCancelled()
     m_card->present(QStringLiteral("Autoplay cancelled"), m_entry.displayTitle(), buttons);
     layoutOverlays();
     showControls();
+}
+
+void PlayerView::onSkipSegmentChanged(SkipSegment segment)
+{
+    if (!segment.valid()) {
+        m_skipButton->hide();
+        return;
+    }
+    m_skipButton->setText(segment.label());
+    m_skipButton->setToolTip(QStringLiteral("%1 (Enter)").arg(segment.label()));
+    m_skipButton->setAccessibleName(segment.label());
+    placeSkipButton();
+    m_skipButton->raise();
+    m_skipButton->show();
+}
+
+void PlayerView::onSegmentSkipped(SkipSegment segment, bool automatic)
+{
+    if (automatic) showOsd(QStringLiteral("Skipped %1").arg(segment.noun()));
 }
 
 void PlayerView::onQueueFinished(QueueEntry last)

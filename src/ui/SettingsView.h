@@ -40,6 +40,8 @@ private:
     QSpinBox* m_countdown;
     QCheckBox* m_resume;
     QCheckBox* m_skipCompleted;
+    QCheckBox* m_autoSkipIntro;
+    QCheckBox* m_autoSkipEnding;
     QLineEdit* m_audioLang;
     QLineEdit* m_subLang;
     QSlider* m_volumeSlider;

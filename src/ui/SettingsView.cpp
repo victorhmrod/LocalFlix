@@ -56,6 +56,10 @@ SettingsView::SettingsView(ApplicationController& app, const QString& engineInfo
     m_countdown->setSpecialValueText(QStringLiteral("Immediately"));
     m_resume = new QCheckBox(QStringLiteral("Resume playback automatically (otherwise ask: resume or start over)"), playback);
     m_skipCompleted = new QCheckBox(QStringLiteral("Skip episodes I have already completed when advancing automatically"), playback);
+    m_autoSkipIntro = new QCheckBox(QStringLiteral("Automatically skip openings (intros)"), playback);
+    m_autoSkipEnding = new QCheckBox(QStringLiteral("Automatically skip endings (credits)"), playback);
+    m_autoSkipIntro->setObjectName(QStringLiteral("AutoSkipIntro"));
+    m_autoSkipEnding->setObjectName(QStringLiteral("AutoSkipEnding"));
     m_audioLang = new QLineEdit(playback);
     m_audioLang->setPlaceholderText(QStringLiteral("e.g. jpn  or  eng, por   (empty = file default)"));
     m_subLang = new QLineEdit(playback);
@@ -74,6 +78,12 @@ SettingsView::SettingsView(ApplicationController& app, const QString& engineInfo
     pf->addRow(QStringLiteral("Countdown before the next episode"), m_countdown);
     pf->addRow(m_resume);
     pf->addRow(m_skipCompleted);
+    pf->addRow(m_autoSkipIntro);
+    pf->addRow(m_autoSkipEnding);
+    pf->addRow(note(QStringLiteral("Openings and endings are found through the chapters stored in the video file (titled Opening, OP, Intro, Ending, ED, Credits…). "
+                                   "When the player is inside one, a <b>Skip</b> button appears (Enter also works); these options skip it by themselves. "
+                                   "Skipping an ending that lasts until the end of the file finishes the episode, so the next one starts as usual. "
+                                   "Files without such chapters have nothing to skip.")));
     pf->addRow(QStringLiteral("Preferred audio language"), m_audioLang);
     pf->addRow(QStringLiteral("Preferred subtitle language"), m_subLang);
     pf->addRow(QStringLiteral("Default volume"), volumeRow);
@@ -149,6 +159,8 @@ SettingsView::SettingsView(ApplicationController& app, const QString& engineInfo
     connect(m_countdown, &QSpinBox::valueChanged, this, [this, &s](int v) { if (!m_loading) s.setAutoPlayCountdownSeconds(v); });
     connect(m_resume, &QCheckBox::toggled, this, [this, &s](bool v) { if (!m_loading) s.setResumeAutomatically(v); });
     connect(m_skipCompleted, &QCheckBox::toggled, this, [this, &s](bool v) { if (!m_loading) s.setSkipCompleted(v); });
+    connect(m_autoSkipIntro, &QCheckBox::toggled, this, [this, &s](bool v) { if (!m_loading) s.setAutoSkipIntro(v); });
+    connect(m_autoSkipEnding, &QCheckBox::toggled, this, [this, &s](bool v) { if (!m_loading) s.setAutoSkipEnding(v); });
     connect(m_audioLang, &QLineEdit::editingFinished, this, [this, &s] { if (!m_loading) s.setPreferredAudioLanguage(m_audioLang->text()); });
     connect(m_subLang, &QLineEdit::editingFinished, this, [this, &s] { if (!m_loading) s.setPreferredSubtitleLanguage(m_subLang->text()); });
     connect(m_volumeSlider, &QSlider::valueChanged, this, [this, &s](int v) {
@@ -204,6 +216,8 @@ void SettingsView::load()
     m_countdown->setValue(s.autoPlayCountdownSeconds());
     m_resume->setChecked(s.resumeAutomatically());
     m_skipCompleted->setChecked(s.skipCompleted());
+    m_autoSkipIntro->setChecked(s.autoSkipIntro());
+    m_autoSkipEnding->setChecked(s.autoSkipEnding());
     m_audioLang->setText(s.preferredAudioLanguage());
     m_subLang->setText(s.preferredSubtitleLanguage());
     m_volumeSlider->setValue(s.defaultVolume());
