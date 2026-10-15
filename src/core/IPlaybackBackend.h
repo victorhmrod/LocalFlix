@@ -55,6 +55,12 @@ struct TrackInfo {
     }
 };
 
+// One chapter of the file being played, as embedded in the container.
+struct ChapterInfo {
+    QString title;
+    double startSeconds = 0.0;
+};
+
 // Abstraction over the media engine. The real implementation wraps libmpv;
 // tests inject a scripted fake. All methods and signals are used on the GUI
 // thread only.
@@ -87,6 +93,8 @@ public:
     virtual bool isMuted() const = 0;
     virtual double speed() const = 0;
     virtual QVector<TrackInfo> tracks() const = 0;
+    // Chapters of the current file, in playback order (empty when it has none).
+    virtual QVector<ChapterInfo> chapters() const = 0;
 
 signals:
     void fileLoaded(quint64 token);
@@ -97,6 +105,7 @@ signals:
     void mutedChanged(bool muted);
     void speedChanged(double speed);
     void tracksChanged(QVector<lf::TrackInfo> tracks);
+    void chaptersChanged(QVector<lf::ChapterInfo> chapters);
     void endFile(lf::EndFileInfo info);
 };
 
@@ -105,3 +114,5 @@ signals:
 Q_DECLARE_METATYPE(lf::EndFileInfo)
 Q_DECLARE_METATYPE(lf::TrackInfo)
 Q_DECLARE_METATYPE(QVector<lf::TrackInfo>)
+Q_DECLARE_METATYPE(lf::ChapterInfo)
+Q_DECLARE_METATYPE(QVector<lf::ChapterInfo>)

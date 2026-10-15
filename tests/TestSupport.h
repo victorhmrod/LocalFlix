@@ -58,11 +58,18 @@ public:
     bool isMuted() const override { return m_muted; }
     double speed() const override { return m_speed; }
     QVector<TrackInfo> tracks() const override { return m_tracks; }
+    QVector<ChapterInfo> chapters() const override { return m_chapters; }
 
     // ---- test controls -----------------------------------------------------
     quint64 lastToken() const { return m_nextToken; }
     const Load& lastLoad() const { return loads.last(); }
     void setDuration(double seconds) { m_duration = seconds; }
+    // What the engine reports for the next file(s); chaptersChanged() is emitted like the real one does.
+    void setChapters(const QVector<ChapterInfo>& chapters)
+    {
+        m_chapters = chapters;
+        emit chaptersChanged(m_chapters);
+    }
     void finishLoading(quint64 token = 0)
     {
         emit fileLoaded(token ? token : m_nextToken);
@@ -98,6 +105,7 @@ private:
     bool m_muted = false;
     double m_speed = 1.0;
     QVector<TrackInfo> m_tracks;
+    QVector<ChapterInfo> m_chapters;
 };
 
 // A throw-away data directory with an initialised service graph and helpers to

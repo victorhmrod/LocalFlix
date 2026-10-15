@@ -56,6 +56,7 @@ public:
     bool isMuted() const override { return m_muted; }
     double speed() const override { return m_speed; }
     QVector<TrackInfo> tracks() const override { return m_tracks; }
+    QVector<ChapterInfo> chapters() const override { return m_chapters; }
 
 signals:
     // Emitted at the start of destruction, before the mpv core is torn down, so
@@ -70,6 +71,7 @@ private:
     void handleEvent(const mpv_event* event);
     void handlePropertyChange(const mpv_event* event);
     void refreshTracks();
+    void refreshChapters();
     bool setOptionString(const char* name, const QString& value);
     bool setPropertyString(const char* name, const QString& value);
     int command(const QByteArrayList& args);
@@ -92,6 +94,7 @@ private:
     bool m_muted = false;
     double m_speed = 1.0;
     QVector<TrackInfo> m_tracks;
+    QVector<ChapterInfo> m_chapters;
     Options m_options;
 };
 

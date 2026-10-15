@@ -24,7 +24,7 @@ namespace lf {
 namespace {
 
 // reply_userdata ids for observed properties
-enum Observed : uint64_t { ObsPosition = 1, ObsDuration, ObsPaused, ObsVolume, ObsMute, ObsSpeed, ObsTrackList, ObsAid, ObsSid };
+enum Observed : uint64_t { ObsPosition = 1, ObsDuration, ObsPaused, ObsVolume, ObsMute, ObsSpeed, ObsTrackList, ObsAid, ObsSid, ObsChapterList };
 
 // Frees the contents of an mpv_node on scope exit.
 struct NodeGuard {
@@ -58,6 +58,15 @@ qint64 nodeInt(const mpv_node& map, const char* key, qint64 fallback = 0)
     if (!v) return fallback;
     if (v->format == MPV_FORMAT_INT64) return v->u.int64;
     if (v->format == MPV_FORMAT_DOUBLE) return qint64(v->u.double_);
+    return fallback;
+}
+
+double nodeDouble(const mpv_node& map, const char* key, double fallback = 0.0)
+{
+    const mpv_node* v = mapValue(map, key);
+    if (!v) return fallback;
+    if (v->format == MPV_FORMAT_DOUBLE) return v->u.double_;
+    if (v->format == MPV_FORMAT_INT64) return double(v->u.int64);
     return fallback;
 }
 
@@ -109,6 +118,7 @@ MpvBackend::MpvBackend(const Options& options, QObject* parent) : IPlaybackBacke
 {
     qRegisterMetaType<lf::EndFileInfo>("lf::EndFileInfo");
     qRegisterMetaType<QVector<lf::TrackInfo>>("QVector<lf::TrackInfo>");
+    qRegisterMetaType<QVector<lf::ChapterInfo>>("QVector<lf::ChapterInfo>");
 
     m_handle = mpv_create();
     if (!m_handle) {
@@ -165,6 +175,7 @@ MpvBackend::MpvBackend(const Options& options, QObject* parent) : IPlaybackBacke
     mpv_observe_property(m_handle, ObsTrackList, "track-list", MPV_FORMAT_NONE);
     mpv_observe_property(m_handle, ObsAid, "aid", MPV_FORMAT_NONE);
     mpv_observe_property(m_handle, ObsSid, "sid", MPV_FORMAT_NONE);
+    mpv_observe_property(m_handle, ObsChapterList, "chapter-list", MPV_FORMAT_NONE);
 
     mpv_set_wakeup_callback(m_handle, &MpvBackend::wakeupCallback, this);
 }
@@ -370,6 +381,8 @@ void MpvBackend::handleEvent(const mpv_event* ev)
         // waiting for the property-change notification.
         double d = 0.0;
         if (mpv_get_property(m_handle, "duration", MPV_FORMAT_DOUBLE, &d) >= 0 && d > 0) m_duration = d;
+        // Before the signal, so chapters() is already right when the controller reacts to it.
+        refreshChapters();
         emit fileLoaded(m_activeToken);
         refreshTracks();
         break;
@@ -386,6 +399,10 @@ void MpvBackend::handleEvent(const mpv_event* ev)
         if (!m_tracks.isEmpty()) {
             m_tracks.clear();
             emit tracksChanged(m_tracks);
+        }
+        if (!m_chapters.isEmpty()) {
+            m_chapters.clear();
+            emit chaptersChanged(m_chapters);
         }
         qCInfo(lcMpv) << "end-file token" << info.token << "reason" << int(info.reason) << info.errorText;
         emit endFile(info);
@@ -458,6 +475,9 @@ void MpvBackend::handlePropertyChange(const mpv_event* ev)
     case ObsSid:
         refreshTracks();
         break;
+    case ObsChapterList:
+        refreshChapters();
+        break;
     default:
         break;
     }
@@ -499,6 +519,33 @@ void MpvBackend::refreshTracks()
     if (same(tracks, m_tracks)) return;
     m_tracks = tracks;
     emit tracksChanged(m_tracks);
+}
+
+void MpvBackend::refreshChapters()
+{
+    if (!m_handle) return;
+    NodeGuard list;
+    QVector<ChapterInfo> chapters;
+    // The property is unavailable (an error) while nothing is loaded: that is "no chapters".
+    if (mpv_get_property(m_handle, "chapter-list", MPV_FORMAT_NODE, &list.node) >= 0 && list.node.format == MPV_FORMAT_NODE_ARRAY) {
+        for (int i = 0; i < list.node.u.list->num; ++i) {
+            const mpv_node& c = list.node.u.list->values[i];
+            ChapterInfo info;
+            info.title = nodeString(c, "title");
+            info.startSeconds = nodeDouble(c, "time");
+            chapters.push_back(info);
+        }
+    }
+
+    auto same = [](const QVector<ChapterInfo>& a, const QVector<ChapterInfo>& b) {
+        if (a.size() != b.size()) return false;
+        for (int i = 0; i < a.size(); ++i)
+            if (a[i].title != b[i].title || a[i].startSeconds != b[i].startSeconds) return false;
+        return true;
+    };
+    if (same(chapters, m_chapters)) return;
+    m_chapters = chapters;
+    emit chaptersChanged(m_chapters);
 }
 
 }  // namespace lf
