@@ -129,7 +129,7 @@ installed on the machine. `-SkipPackage` reuses the staging folder, `-SkipTest` 
 | `M` | mute | `A` | cycle audio tracks |
 | `F` / `F11` / `Alt+Enter` / double-click | fullscreen | `0`–`9` | jump to 0 %–90 % |
 | `Esc` | leave fullscreen, then leave the player | click | play / pause |
-| `Enter` | press **Skip Intro** / **Skip Ending** while the button is shown | | |
+| `Enter` | press **Skip Intro** / **Skip Ending** while the button is shown | `Ctrl+P` | picture in picture (also `Esc` to leave it) |
 
 Library: `Ctrl+1…6` switch screens, `Del` removes the selected episodes from the library (files are kept).
 
@@ -138,12 +138,27 @@ Library: `Ctrl+1…6` switch screens, `Del` removes the selected episodes from t
 When the file has chapters titled like an opening or an ending (`Opening`, `OP`, `OP1`, `Intro`, `Abertura` /
 `Ending`, `ED`, `Credits`, `Créditos`, `Encerramento`…), a **Skip Intro** / **Skip Ending** button appears at the
 bottom right while the video is inside it (click it or press `Enter`). Two options in *Settings → Playback* skip them
-by themselves; both are off by default. Skipping an opening jumps to the next chapter. Skipping an ending that lasts
-until the end of the file seeks to the end, so the episode finishes and the next one starts exactly as if it had been
-watched (including the countdown); an ending followed by its own chapter, such as a post-credits scene, jumps to that
-chapter and keeps playing. Automatic skipping happens at most once per opening/ending and never after you seek into it
-yourself. Files without such chapters (most plain downloads) have nothing to skip: detection reads the chapters,
-it does not analyse audio or video.
+by themselves; both are **on by default** (turn them off there if you prefer the button only). Skipping an opening
+jumps to the next chapter. Skipping an ending that lasts until the end of the file seeks to the end, so the episode
+finishes and the next one starts exactly as if it had been watched (including the countdown); an ending followed by
+its own chapter, such as a post-credits scene, jumps to that chapter and keeps playing. Automatic skipping happens at
+most once per opening/ending and never after you seek into it yourself.
+
+**Files without chapters** (most plain downloads) have nothing to detect, so you mark them once per season: while an
+episode plays, open the flag menu in the control bar and choose *Ending starts here* (stored as "the last N seconds",
+so it fits episodes of any length) and/or *Opening starts here* then *Opening ends here*. The marks apply to every
+episode of that season that has no chapters for it, immediately and for good; files that do have chapters keep using
+them. Marking the ending while you are inside it does not make the app jump on the spot, and the same menu clears the
+marks. The opening is an absolute stretch of the file, so it only fits a season whose openings start at the same point;
+the ending, being relative to the end, fits nearly any show. Movies are chapters-only.
+
+### Picture in picture
+
+`Ctrl+P` (or the button in the control bar) turns the player into a small window in the corner of the screen that stays
+on top of other windows while you work; it shrinks the controls to play/pause and the seek bar, and playback, the Skip
+button and auto-play carry on. `Ctrl+P` or `Esc` brings back the window exactly as it was (size, position, maximized or
+fullscreen);
+closing the application while in it remembers the normal window, not the small one.
 
 ### Settings
 
@@ -189,8 +204,9 @@ Architecture, threading rules, the SQLite schema and the reasoning behind the ma
 * Windows only; x64 only. Needs a GPU/driver that can present OpenGL 3.3 (or use `--software-opengl`).
 * Hardware decoding is requested with libmpv's `hwdec=auto-safe`; which decoder is actually used depends on mpv and your GPU driver (the automated tests only exercise software decoding).
 * Episode thumbnails and metadata lookup are not implemented (descriptions and covers are manual, by design: no internet).
-* Skip intro/ending works from the file's embedded chapters only; there is no audio fingerprinting and no manual marking, so a file with no (or unlabelled) chapters shows no Skip button.
-* Subtitles/audio selections are remembered per file, not globally.
+* Skip intro/ending finds openings and endings from the file's embedded chapters, or from the marks you set once per season for files without chapters; there is no audio fingerprinting.
+* Picture in picture is a small always-on-top window (Windows app only), not the operating system's own overlay; it keeps its title bar so it can be moved and resized like any window.
+* Audio and subtitle choices are remembered **per show**, by language and title (a choice made in one episode applies to the others, even where the tracks come in another order; "subtitles off" too), and per file for movies. A show's other episodes only follow a language they actually have; where they do not, the engine's own pick stands. There is no global "always Portuguese" other than *Settings → Preferred audio/subtitle language*.
 * Progress positions shorter than 5 s are not resumed (a deliberate rule so an accidental click does not hijack "Continue").
 
 ## Status

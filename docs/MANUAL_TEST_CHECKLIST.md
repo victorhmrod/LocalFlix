@@ -35,15 +35,32 @@ launching `localflix.exe` (or delete `%APPDATA%\LocalFlix`).
 * Corrupt/unsupported file → "Cannot play this file" with Skip/Retry; nothing advances by itself.
 * Settings: auto-play off → "Finished" card with *Play next*; resume off → asks "Resume from … / Start over"; skip completed on → auto-advance skips watched episodes (the **Next** button does not).
 * Audio track menu and subtitle menu list the tracks of **files with several audio tracks / embedded subtitles**;
-  switching works and is remembered per file; **Load external subtitle…** works; a `.srt` next to the video loads automatically.
+  switching works; **Load external subtitle…** works; a `.srt` next to the video loads automatically.
+* **Audio/subtitle choice follows the show**: in an episode with two audio languages switch to the other one, then
+  let the episode end by itself and also try **Next**: the following episodes start in the language you chose, even if
+  that file lists its tracks in another order. Turn the subtitles off in one episode: they stay off in the next ones.
+  An episode that does not have the chosen language plays in its default one, and goes back to your choice in the next
+  episode that has it. Another show is not affected; a movie keeps its own choice.
 * **Skip Intro / Skip Ending** (needs files whose chapters are titled `Opening`/`OP`/`Intro` and `Ending`/`ED`/`Credits`,
   e.g. a fansub `.mkv` or a Blu-ray rip; check with *Audio/Video → Chapters* in any other player if unsure):
   the button appears bottom right while the playhead is inside one and disappears when it leaves; clicking it or `Enter`
-  jumps to the next chapter; with the options off nothing is skipped by itself. Turn on *Automatically skip openings* and
-  *endings* in Settings: the opening is skipped as soon as it starts (an "Skipped intro" note flashes), the ending is
-  skipped and the next episode starts (after the usual countdown); seeking back into a skipped opening plays it. On the
-  last episode, or with auto-play off, skipping the ending ends the episode ("That's everything" / "Finished"). A file
-  with a post-credits scene in its own chapter keeps playing the scene. Files with no chapters show no button.
+  jumps to the next chapter. Both automatic options (*Settings → Playback*) are on by default: the opening is skipped as
+  soon as it starts (a "Skipped intro" note flashes), the ending is skipped and the next episode starts (after the usual
+  countdown); seeking back into a skipped opening plays it; with the options off only the button remains. On the last
+  episode, or with auto-play off, skipping the ending ends the episode ("That's everything" / "Finished"). A file with a
+  post-credits scene in its own chapter keeps playing the scene. Files with no chapters show no button until marked:
+* **Marks for files without chapters** (the flag button in the control bar): play an episode with no chapters, open the
+  flag menu near where its ending starts and choose *Ending starts here*: the note says how long the ending is, the Skip
+  Ending button appears but the video does **not** jump by itself right then; the menu now lists the mark. Play another
+  episode of the same season: the ending is skipped by itself the moment it starts, whatever that episode's length.
+  Try *Opening starts here*, later *Opening ends here*. A second season is unaffected. The menu clears each mark. A movie
+  says marks are for episodes only. A file that does have chapters keeps using them.
+* **Picture in picture** (`Ctrl+P` or the button next to fullscreen): the window becomes a small one in the corner of the
+  screen the app is on, above other windows (try a browser maximised behind it), with the video still playing and only
+  play/pause, the seek bar and a way back on screen; the Skip button still appears in the credits. Drag and resize it,
+  `Esc` or `Ctrl+P` restores the window as it was (also if it was maximized); `F`/double-click also go back instead of
+  fullscreen. Closing LocalFlix while in it and reopening gives the normal window. Try it from fullscreen, with two
+  monitors, with a 4:3 video (the window should be 4:3), and with the "Next episode" card showing in it.
 * Speed menu, `[` `]`, volume (wheel, ↑/↓), mute (`M`), `0`–`9` jump keys.
 * Fullscreen (`F`, button, double-click): controls and cursor hide after ~3 s of no movement and return on movement; `Esc` leaves fullscreen first, then the player.
 

@@ -52,12 +52,21 @@ playback); `ApplicationController::shutdown()` then stops the workers and closes
 * **Resume rules** (`Progress`, `ResumeLogic`): positions under 5 s are not resumable; completed items replay from 0 and
   stay completed; "Continue" for a show = the most recently watched episode if unfinished, else the next unfinished
   one in the configured order (wrapping), else "Watch again" from the top.
-* **Skipping openings and endings** (`SkipSegments`, `PlaybackController`). Segments come only from the chapters in the
-  file (`IPlaybackBackend::chapters()`, libmpv's `chapter-list`); nothing is stored in the database, so there is no
-  schema for it. `classifyChapterTitle` decides from whole words in the title (`OP` is an opening, `Operation` is not;
-  `Opening Night` and `Post-Credits Scene` are content). A segment lasts until the next chapter that is not part of it;
-  a `Preview` chapter right after an ending belongs to the ending. The controller offers the segment the playhead is in
-  (`skipSegmentChanged`) and skips it when the user asks or the setting is on, with these rules:
+* **Skipping openings and endings** (`SkipSegments`, `PlaybackController`). Segments come from the chapters in the
+  file (`IPlaybackBackend::chapters()`, libmpv's `chapter-list`) and, for a kind the chapters say nothing about, from
+  the marks of the episode's season (below). `classifyChapterTitle` decides from whole words in the title (`OP` is an
+  opening, `Operation` is not; `Opening Night` and `Post-Credits Scene` are content). A segment lasts until the next
+  chapter that is not part of it; a `Preview` chapter right after an ending belongs to the ending. The controller offers
+  the segment the playhead is in (`skipSegmentChanged`) and skips it when the user asks or the option is on (both options
+  are on by default; a user who turned one off keeps it off), with these rules:
+  * **Season marks** (`season_skip_marks`, schema v2) are the fallback for files without chapters: the user marks, in
+    the player, where an opening starts and ends (absolute times) and where the ending starts, stored as "the last N ms"
+    so one mark fits episodes of different lengths. Per kind, a chapter-derived segment wins and the mark only fills in
+    when the chapters give none of that kind (`skipSegmentsFor`); a mark that does not fit a file (an opening past its
+    end, an ending as long as the whole file) is ignored. Movies have no season, so they are chapters-only.
+    Marking applies live (`LibraryManager::skipMarksChanged`), and the segment the playhead is in at that moment is
+    treated as handled, so marking "the ending starts here" never makes the app jump out of it on the spot. The marks menu
+    marks the position it was opened at, since the video keeps playing under an open menu.
   * **Completion stays event-based.** An ending that runs to the end of the file is skipped by *seeking to the end*;
     the engine then reports `END_FILE(Eof)` (`keep-open=no`, proven by `tst_mpv_backend`) and the normal path completes
     the item, runs the countdown and advances, or finishes the queue / shows "Finished" when auto-play is off. The skip
@@ -65,12 +74,25 @@ playback); `ApplicationController::shutdown()` then stops the workers and closes
     its own chapter (post-credits scene) is skipped to the start of that chapter and playback continues.
   * **At most once per segment per load.** A skipped segment, and any segment the user seeks into, is remembered in
     `m_handled` until the next load, so stale position events after the seek cannot loop and seeking back into a skipped
-    opening is left alone.
+    opening is left alone. The key (`SkipSegment::key()`) of an ending that runs to the end of the file does not depend
+    on its start, which moves when the engine refines the duration.
   * **Only while `Playing`.** Not paused, loading or counting down; the button itself also works while paused. Skipping
     an ending that runs to the end of the file while paused resumes first: libmpv seeked to the end *while paused*
     parks on the last frame and never reports the end of the file (also covered by `tst_mpv_backend`).
   * Chapters are read from the backend when `fileLoaded` arrives (the backend refreshes them first), and again when
     they or the duration change; segments are cleared when a file ends or is replaced.
+* **Audio and subtitle choice** (`TrackChoice`, `PlaybackController::restoreTrackChoices`). A choice made while
+  watching an episode belongs to its **show** and is stored by what the track is (language, title: `show_track_prefs`),
+  because a track number means nothing in the next file and, left to libmpv alone, the choice was lost when an episode
+  ended by itself and the next one started. When a file loads (the backend refreshes its track list before
+  `fileLoaded`, so the controller sees it) the show's preference is found again with `findTrackForChoice`: the language
+  decides (`pt`, `por` and `pt-BR` are the same; `und` is none), the title only breaks ties, a choice without a language
+  matches only an exact title, and when nothing matches the engine's own pick stands. It is applied straight to the
+  backend, so loading never writes a preference; only the kind the user changed (audio or subtitle) is recorded, and an
+  external subtitle (specific to one file) is not. A show preference beats the per-file choice and the global language
+  settings; movies have no show and keep the per-file, by-number choice. A per-file choice written by earlier versions is
+  still restored when the show has no preference, and becomes the show's when it differs from what the engine had
+  picked itself (so the implicit values older versions stored for both kinds are not mistaken for choices).
 * **Saving** (`PlaybackProgressManager`): in-memory position, written at most every 5 s and only if it moved ≥ 1 s;
   immediately on pause, switching, stopping and shutdown. Opening something and leaving within 2 s creates no history.
   The file's duration is stored once on `media_files`, not with every save.
@@ -95,6 +117,14 @@ composites the pixels. Rules that follow from that:
 
 * the `MpvWidget` is never reparented (that would destroy its GL context); fullscreen only hides the sidebar and calls
   `showFullScreen()` on the main window;
+* **picture in picture** is the same window made small, not a second window: `MainWindow::setPictureInPicture` leaves
+  fullscreen (without touching the remembered fullscreen state), lowers the minimum size, resizes to ~480 px wide in the
+  corner of the screen it is on (keeping the video's aspect ratio) and puts it on the always-on-top layer with
+  `QWindow::setFlag(Qt::WindowStaysOnTopHint)`, which changes the layer in place; `QWidget::setWindowFlag` may re-create
+  the native window and a bare `SetWindowPos` is undone by Qt's own bookkeeping. `tst_ui_e2e` checks that the window
+  handle stays the same and the video keeps rendering. `PlayerView::setPictureInPicture` shrinks the overlays to
+  play/pause, the seek bar and the way back; leaving restores size, position, minimum size and the maximized state, and
+  closing the application while in it saves the normal geometry, never the small one;
 * render calls pass `BLOCK_FOR_TARGET_TIME=0` and the engine runs with `video-timing-offset=0` so the GUI thread is never
   blocked waiting for vsync;
 * video loading waits for the render context (`PlayerView::whenVideoReady`), with a visible error after 6 s.
@@ -122,6 +152,9 @@ collections(id, name, description, created_at)
 collection_entries(id, collection_id → collections, item_type 'show'|'movie', item_id, sort_order, UNIQUE(collection, type, item))
 playback_progress(media_file_id PK → media_files, position_ms, duration_ms, completed, play_count,
                   last_watched_at, audio_track, subtitle_track, updated_at)
+season_skip_marks(season_id PK → seasons ON DELETE CASCADE, intro_start_ms, intro_end_ms, ending_from_end_ms)   -- v2, -1 = not set
+show_track_prefs(show_id PK → shows ON DELETE CASCADE, audio_mode, audio_lang, audio_title,
+                 sub_mode, sub_lang, sub_title)                                                  -- v2, mode -1 none / 0 off / 1 a track
 settings(key PK, value)
 ```
 
