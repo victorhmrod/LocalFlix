@@ -15,14 +15,20 @@
 #include <QButtonGroup>
 #include <QCloseEvent>
 #include <QFrame>
+#include <QGuiApplication>
 #include <QHBoxLayout>
 #include <QLabel>
 #include <QMessageBox>
+#include <QScreen>
 #include <QShortcut>
 #include <QStackedWidget>
 #include <QTimer>
 #include <QToolButton>
 #include <QVBoxLayout>
+#include <QWindow>
+
+#include <algorithm>
+#include <cmath>
 
 namespace lf::ui {
 
@@ -150,7 +156,14 @@ void MainWindow::buildUi()
             if (pageWidget(kNav[i].page) == target) m_navButtons[i]->setChecked(true);
     });
     connect(m_player, &PlayerView::backRequested, this, &MainWindow::leavePlayer);
-    connect(m_player, &PlayerView::fullscreenToggleRequested, this, [this] { setFullscreen(!isFullScreen()); });
+    // In picture in picture "fullscreen" (F, double click) means "back to the full window".
+    connect(m_player, &PlayerView::fullscreenToggleRequested, this, [this] {
+        if (m_pip)
+            setPictureInPicture(false);
+        else
+            setFullscreen(!isFullScreen());
+    });
+    connect(m_player, &PlayerView::pictureInPictureToggleRequested, this, [this] { setPictureInPicture(!m_pip); });
     connect(m_player, &PlayerView::locateFileRequested, m_actions, &LibraryActions::locateMissing);
     connect(m_player, &PlayerView::titleChanged, this, [this](const QString& t) {
         setWindowTitle(t.isEmpty() ? QStringLiteral("LocalFlix") : QStringLiteral("%1 — LocalFlix").arg(t));
@@ -259,6 +272,7 @@ void MainWindow::enterPlayer()
 void MainWindow::leavePlayer()
 {
     if (m_stack->currentWidget() != m_player) return;
+    if (m_pip) setPictureInPicture(false);     // the library is not shown in the small window
     if (isFullScreen()) setFullscreen(false);  // library screens are not meant for fullscreen
     m_sidebar->show();
     m_toast->setAnchoredToTop(false);
@@ -270,6 +284,11 @@ void MainWindow::leavePlayer()
 }
 
 void MainWindow::setFullscreen(bool fullscreen)
+{
+    applyFullscreen(fullscreen, /*remember=*/true);
+}
+
+void MainWindow::applyFullscreen(bool fullscreen, bool remember)
 {
     if (fullscreen == isFullScreen()) {
         m_player->setFullscreen(fullscreen);
@@ -284,15 +303,76 @@ void MainWindow::setFullscreen(bool fullscreen)
         showNormal();
     }
     m_player->setFullscreen(fullscreen);
-    // "Remember" mode stores what the user chose while watching (not the automatic exit).
-    if (m_stack->currentWidget() == m_player && m_app.settings().fullscreenBehavior() == FullscreenBehavior::Remember)
+    // "Remember" mode stores what the user chose while watching (not the automatic exit, nor leaving
+    // fullscreen to go to picture in picture).
+    if (remember && m_stack->currentWidget() == m_player && m_app.settings().fullscreenBehavior() == FullscreenBehavior::Remember)
         m_app.settings().setLastFullscreen(fullscreen);
+}
+
+// Moves the window to the always-on-top layer without re-creating it: the video widget's OpenGL context lives
+// in the native window, which must survive (the same reason the MpvWidget is never reparented). QWindow::setFlag
+// changes the layer in place (tst_ui_e2e checks the window handle stays the same); QWidget::setWindowFlag may
+// re-create the window, and a plain SetWindowPos is undone by Qt's own bookkeeping of the flag.
+void MainWindow::setAlwaysOnTop(bool on)
+{
+    if (QWindow* w = windowHandle()) w->setFlag(Qt::WindowStaysOnTopHint, on);
+}
+
+void MainWindow::setPictureInPicture(bool on)
+{
+    if (on == m_pip) return;
+    if (on) {
+        if (m_stack->currentWidget() != m_player) return;  // only while a video is on screen
+        // What to go back to is read before anything is changed: right after leaving fullscreen the window's
+        // own state flags may not have caught up yet (it would look "not maximized" and come back as a big normal window).
+        m_pipFromFullscreen = isFullScreen();
+        m_pipRestoreMaximized = m_pipFromFullscreen ? m_wasMaximized : isMaximized();
+        m_pipRestoreGeometry = (isMaximized() || isFullScreen()) ? normalGeometry() : geometry();
+        m_pipRestoreMinimum = minimumSize();
+        if (m_pipFromFullscreen) applyFullscreen(false, /*remember=*/false);
+        if (m_pipRestoreMaximized || isMaximized()) showNormal();
+
+        const double aspect = m_backend && m_backend->videoAspect() > 0.0 ? m_backend->videoAspect() : 16.0 / 9.0;
+        const QSize pipSize = m_pipPlaced ? m_pipSize : QSize(480, int(std::lround(480.0 / aspect)));
+        setMinimumSize(240, int(std::lround(240.0 / aspect)));
+        resize(pipSize);
+
+        const QScreen* placedOn = QGuiApplication::screenAt(m_pipPos + QPoint(pipSize.width() / 2, pipSize.height() / 2));
+        if (m_pipPlaced && placedOn) {
+            move(m_pipPos);
+        } else {
+            // bottom right corner of the screen the window is on
+            const QScreen* current = this->screen() ? this->screen() : QGuiApplication::primaryScreen();
+            const QRect avail = current->availableGeometry();
+            move(avail.right() - frameGeometry().width() - 24, avail.bottom() - frameGeometry().height() - 24);
+        }
+        setAlwaysOnTop(true);
+        m_pip = true;
+        m_player->setPictureInPicture(true);
+    } else {
+        m_pipSize = size();
+        m_pipPos = pos();
+        m_pipPlaced = true;
+        setAlwaysOnTop(false);
+        m_pip = false;
+        m_player->setPictureInPicture(false);
+        setMinimumSize(m_pipRestoreMinimum);
+        setGeometry(m_pipRestoreGeometry);
+        if (m_pipRestoreMaximized) showMaximized();
+        // it was fullscreen when the small window was asked for: back to that (not a choice to remember)
+        if (m_pipFromFullscreen) {
+            applyFullscreen(true, /*remember=*/false);
+            m_wasMaximized = m_pipRestoreMaximized;  // what leaving fullscreen later goes back to
+        }
+        m_pipFromFullscreen = false;
+    }
 }
 
 void MainWindow::closeEvent(QCloseEvent* event)
 {
     // Save progress and stop the engine before anything is torn down.
     m_app.playback().shutdown();
+    if (m_pip) setPictureInPicture(false);  // what is saved is the normal window, never the small one
     if (!isFullScreen()) m_app.settings().setWindowGeometry(saveGeometry());
     QMainWindow::closeEvent(event);
 }

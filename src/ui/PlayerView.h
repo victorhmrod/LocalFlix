@@ -20,6 +20,7 @@ class QProgressBar;
 class QPushButton;
 class QToolButton;
 class QSlider;
+class QVBoxLayout;
 
 namespace lf {
 class MpvBackend;
@@ -43,12 +44,17 @@ public:
     void whenVideoReady(std::function<void()> then);
     void setFullscreen(bool fullscreen);
     bool isFullscreen() const { return m_fullscreen; }
+    // Picture in picture: the window is a small floating one, so the controls shrink to play/pause, the seek bar
+    // and the button that leaves it, and the title bar is gone. The MainWindow does the resizing.
+    void setPictureInPicture(bool on);
+    bool isPictureInPicture() const { return m_pip; }
     // Shows the failure card for the media that could not be played.
     void showCardForState();
 
 signals:
     void backRequested();            // user wants to leave the player (playback stopped)
     void fullscreenToggleRequested();
+    void pictureInPictureToggleRequested();
     void titleChanged(const QString& title);
     void locateFileRequested(lf::Id mediaFileId);
     void resumeChoiceMade();
@@ -80,6 +86,8 @@ private:
     void buildShortcuts();
     void layoutOverlays();
     void placeSkipButton();
+    int controlBarHeight() const;
+    int topInset() const;
     QToolButton* makeButton(Icon icon, const QString& tooltip, int iconSize = 26);
     void updateTimeLabels(qint64 positionMs, qint64 durationMs);
     void updateNavigation(bool hasPrevious, bool hasNext);
@@ -126,6 +134,9 @@ private:
     QToolButton* m_audioButton;
     QToolButton* m_subtitleButton;
     QToolButton* m_fullscreenButton;
+    QToolButton* m_pipButton;
+    QVBoxLayout* m_barLayout;
+    QList<QWidget*> m_fullOnlyControls;  // hidden in picture in picture
     QMenu* m_speedMenu;
     QMenu* m_audioMenu;
     QMenu* m_subtitleMenu;
@@ -147,6 +158,7 @@ private:
 
     QVector<TrackInfo> m_tracks;
     bool m_fullscreen = false;
+    bool m_pip = false;
     bool m_scrubbing = false;
     bool m_hasPrevious = false;
     bool m_hasNext = false;

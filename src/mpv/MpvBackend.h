@@ -35,6 +35,8 @@ public:
     QString initError() const { return m_initError; }
     mpv_handle* handle() const { return m_handle; }
     QString mpvVersion() const;
+    // Display aspect ratio (width / height) of the video being played, 0 when unknown.
+    double videoAspect() const;
 
     quint64 loadFile(const QString& path, double startSeconds) override;
     void stop() override;

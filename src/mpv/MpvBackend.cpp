@@ -200,6 +200,14 @@ QString MpvBackend::mpvVersion() const
     return s;
 }
 
+double MpvBackend::videoAspect() const
+{
+    if (!m_handle) return 0.0;
+    double aspect = 0.0;
+    if (mpv_get_property(m_handle, "video-params/aspect", MPV_FORMAT_DOUBLE, &aspect) < 0 || !(aspect > 0.1) || aspect > 10.0) return 0.0;
+    return aspect;
+}
+
 void MpvBackend::wakeupCallback(void* ctx)
 {
     // Arbitrary thread: only schedule a drain on the GUI thread (coalesced).

@@ -34,9 +34,29 @@ namespace lf::ui {
 
 namespace {
 constexpr int kControlBarHeight = 150;
+constexpr int kPipControlBarHeight = 96;  // play/pause + seek bar only, in the small picture-in-picture window
 constexpr int kTopBarHeight = 92;
 constexpr int kAutoHideMs = 3000;
+
+QString skipButtonStyle(bool compact)
+{
+    return QStringLiteral(
+               "QPushButton { background: rgba(15,17,21,0.82); color: white; border: 1px solid rgba(255,255,255,0.7); border-radius: 6px;"
+               " padding: %1; font-size: %2; font-weight: 600; }"
+               "QPushButton:hover { background: white; color: black; border-color: white; }")
+        .arg(compact ? QStringLiteral("5px 12px") : QStringLiteral("10px 22px"), compact ? QStringLiteral("10pt") : QStringLiteral("13pt"));
+}
 }  // namespace
+
+int PlayerView::controlBarHeight() const
+{
+    return m_pip ? kPipControlBarHeight : kControlBarHeight;
+}
+
+int PlayerView::topInset() const
+{
+    return m_pip ? 0 : kTopBarHeight;  // no title bar over the video in picture in picture
+}
 
 PlayerView::PlayerView(ApplicationController& app, MpvBackend* backend, QWidget* parent)
     : QWidget(parent), m_app(app), m_playback(app.playback()), m_backend(backend)
@@ -234,6 +254,8 @@ void PlayerView::buildUi()
     m_subtitleButton->setMenu(m_subtitleMenu);
     m_fullscreenButton = makeButton(Icon::Fullscreen, QStringLiteral("Fullscreen (F)"), 24);
     m_fullscreenButton->setObjectName(QStringLiteral("FullscreenButton"));
+    m_pipButton = makeButton(Icon::PictureInPicture, QStringLiteral("Picture in picture (Ctrl+P)"), 24);
+    m_pipButton->setObjectName(QStringLiteral("PictureInPictureButton"));
     m_muteButton->setObjectName(QStringLiteral("MuteButton"));
     m_volume->setObjectName(QStringLiteral("VolumeSlider"));
 
@@ -259,13 +281,19 @@ void PlayerView::buildUi()
     buttons->addWidget(m_marksButton);
     buttons->addWidget(m_audioButton);
     buttons->addWidget(m_subtitleButton);
+    buttons->addWidget(m_pipButton);
     buttons->addWidget(m_fullscreenButton);
 
-    auto* bar = new QVBoxLayout(m_controls);
-    bar->setContentsMargins(24, 44, 24, 14);
-    bar->setSpacing(6);
-    bar->addLayout(seekRow);
-    bar->addLayout(buttons);
+    // What picture in picture hides: everything but play/pause, the seek bar and the way back.
+    m_fullOnlyControls = {m_timeLabel,    m_prevButton,  m_backSeekButton, m_forwardSeekButton, m_nextButton, m_stopButton,
+                          m_muteButton,   m_volume,      m_speedButton,    m_marksButton,       m_audioButton, m_subtitleButton,
+                          m_fullscreenButton};
+
+    m_barLayout = new QVBoxLayout(m_controls);
+    m_barLayout->setContentsMargins(24, 44, 24, 14);
+    m_barLayout->setSpacing(6);
+    m_barLayout->addLayout(seekRow);
+    m_barLayout->addLayout(buttons);
 
     // ---- transient overlays
     m_osd = new QLabel(this);
@@ -282,10 +310,7 @@ void PlayerView::buildUi()
     m_skipButton->setObjectName(QStringLiteral("SkipSegmentButton"));
     m_skipButton->setCursor(Qt::PointingHandCursor);
     m_skipButton->setFocusPolicy(Qt::NoFocus);
-    m_skipButton->setStyleSheet(QStringLiteral(
-        "QPushButton { background: rgba(15,17,21,0.82); color: white; border: 1px solid rgba(255,255,255,0.7); border-radius: 6px;"
-        " padding: 10px 22px; font-size: 13pt; font-weight: 600; }"
-        "QPushButton:hover { background: white; color: black; border-color: white; }"));
+    m_skipButton->setStyleSheet(skipButtonStyle(false));
     m_skipButton->hide();
 
     // ---- wiring
@@ -312,6 +337,7 @@ void PlayerView::buildUi()
         if (m_backend->isMuted() && v > 0) m_playback.setMuted(false);
     });
     connect(m_fullscreenButton, &QToolButton::clicked, this, &PlayerView::fullscreenToggleRequested);
+    connect(m_pipButton, &QToolButton::clicked, this, &PlayerView::pictureInPictureToggleRequested);
     connect(m_skipButton, &QPushButton::clicked, this, [this] { m_playback.skipActiveSegment(); });
 
     connect(m_seek, &SeekSlider::scrubbed, this, [this](double f) {
@@ -370,9 +396,12 @@ void PlayerView::buildShortcuts()
     add(Qt::Key_Escape, [this] {
         if (m_fullscreen)
             emit fullscreenToggleRequested();
+        else if (m_pip)
+            emit pictureInPictureToggleRequested();  // Esc first leaves the small window, then the player
         else
             leaveToLibrary();
     });
+    add(Qt::CTRL | Qt::Key_P, [this] { emit pictureInPictureToggleRequested(); });
     add(Qt::Key_Return, [this] { m_playback.skipActiveSegment(); });  // the Skip button; does nothing outside an opening/ending
     add(Qt::Key_Enter, [this] { m_playback.skipActiveSegment(); });
     add(Qt::Key_N, [this] { m_playback.next(); });
@@ -400,11 +429,12 @@ void PlayerView::layoutOverlays()
 {
     m_video->setGeometry(rect());
     m_topBar->setGeometry(0, 0, width(), kTopBarHeight);
-    m_controls->setGeometry(0, height() - kControlBarHeight, width(), kControlBarHeight);
+    m_controls->setGeometry(0, height() - controlBarHeight(), width(), controlBarHeight());
+    m_card->setFixedWidth(std::clamp(width() - 24, 200, 500));  // narrower than 500 in a small window
     m_card->adjustSize();
-    m_card->move((width() - m_card->width()) / 2, std::max(20, (height() - m_card->height()) / 2 - 20));
+    m_card->move((width() - m_card->width()) / 2, std::max(m_pip ? 4 : 20, (height() - m_card->height()) / 2 - 20));
     m_osd->adjustSize();
-    m_osd->move(width() - m_osd->width() - 28, kTopBarHeight + 8);
+    m_osd->move(width() - m_osd->width() - 28, topInset() + 8);
     placeSkipButton();
     m_topBar->raise();
     m_controls->raise();
@@ -418,8 +448,8 @@ void PlayerView::layoutOverlays()
 void PlayerView::placeSkipButton()
 {
     m_skipButton->adjustSize();
-    const int bottom = m_controls->isVisible() ? m_controls->y() + 30 : height() - 40;
-    m_skipButton->move(std::max(8, width() - m_skipButton->width() - 28), std::max(kTopBarHeight, bottom - m_skipButton->height()));
+    const int bottom = m_controls->isVisible() ? m_controls->y() + (m_pip ? 14 : 30) : height() - (m_pip ? 14 : 40);
+    m_skipButton->move(std::max(8, width() - m_skipButton->width() - (m_pip ? 10 : 28)), std::max(topInset(), bottom - m_skipButton->height()));
 }
 
 void PlayerView::showEvent(QShowEvent* e)
@@ -459,9 +489,9 @@ bool PlayerView::controlsAreHot() const
 
 void PlayerView::showControls()
 {
-    if (!m_controls->isVisible() || !m_topBar->isVisible()) {
+    if (!m_controls->isVisible() || (!m_pip && !m_topBar->isVisible())) {
         m_controls->show();
-        m_topBar->show();
+        if (!m_pip) m_topBar->show();
         layoutOverlays();
     }
     m_video->unsetCursor();
@@ -487,10 +517,25 @@ void PlayerView::showOsd(const QString& text)
 {
     m_osd->setText(text);
     m_osd->adjustSize();
-    m_osd->move(width() - m_osd->width() - 28, kTopBarHeight + 8);
+    m_osd->move(width() - m_osd->width() - 28, topInset() + 8);
     m_osd->raise();
     m_osd->show();
     m_osdTimer.start(1200);
+}
+
+void PlayerView::setPictureInPicture(bool on)
+{
+    if (m_pip == on) return;
+    m_pip = on;
+    for (QWidget* w : m_fullOnlyControls) w->setVisible(!on);
+    m_barLayout->setContentsMargins(on ? QMargins(12, 14, 12, 8) : QMargins(24, 44, 24, 14));
+    m_pipButton->setIcon(Theme::icon(on ? Icon::FullscreenExit : Icon::PictureInPicture, Qt::white, 24));
+    m_pipButton->setToolTip(on ? QStringLiteral("Back to the full window (Ctrl+P, Esc)") : QStringLiteral("Picture in picture (Ctrl+P)"));
+    m_skipButton->setStyleSheet(skipButtonStyle(on));
+    if (on) m_topBar->hide();
+    m_osd->hide();
+    layoutOverlays();
+    showControls();
 }
 
 void PlayerView::setFullscreen(bool fullscreen)

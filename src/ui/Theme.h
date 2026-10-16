@@ -44,7 +44,8 @@ enum class Icon {
     Refresh,
     Warning,
     Replay,
-    Flag
+    Flag,
+    PictureInPicture
 };
 
 namespace Colors {

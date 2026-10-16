@@ -35,6 +35,13 @@
 #include <functional>
 #include <memory>
 
+#ifdef Q_OS_WIN
+#ifndef NOMINMAX
+#define NOMINMAX
+#endif
+#include <windows.h>
+#endif
+
 using namespace lf;
 using namespace lf::ui;
 using namespace lf::test;
@@ -751,6 +758,157 @@ private slots:
         QVERIFY2(waitFor([&] { return completed.count() >= 1; }, 8000), "Skip Ending did not finish the episode");
         QVERIFY(clock.elapsed() < 6000);
         QVERIFY(lib.episode(ep.id)->progress.completed);
+        s.closeLikeAUser();
+    }
+
+    // Picture in picture: a small always-on-top window that keeps playing, compact controls, and everything
+    // restored on the way out (also when the application is closed while in it).
+    void step14_pictureInPicture()
+    {
+        QVERIFY(s.start(m_dataDir));
+        auto& lib = s.app->library();
+        auto& pc = s.app->playback();
+        s.app->settings().setAutoSkipEnding(false);
+        s.app->settings().setAutoSkipIntro(false);
+        Episode ep;
+        for (const Episode& e : lib.episodes(m_showId))
+            if (e.file.path.endsWith(QStringLiteral("long_resume_test.mkv"), Qt::CaseInsensitive)) ep = e;
+        QVERIFY(ep.id != kInvalidId);
+        lib.resetProgress({ep.file.id});
+
+        QSignalSpy now(&pc, &PlaybackController::nowPlaying);
+        s.window->startPlayback({ContextType::Show, m_showId}, ep.file.id, StartMode::FromStart);
+        auto* player = s.window->findChild<PlayerView*>();
+        auto* video = player ? player->findChild<MpvWidget*>() : nullptr;
+        QVERIFY(player && video);
+        QVERIFY(waitFor([&] { return now.count() >= 1 && pc.positionMs() >= 1000; }, 20000));
+        const QRect normalGeometry = s.window->geometry();
+        const QSize normalMinimum = s.window->minimumSize();
+        const WId nativeWindow = s.window->winId();  // re-creating the native window would lose the video's OpenGL context
+        QVERIFY(normalMinimum.width() >= 900);
+        QVERIFY(!s.window->isPictureInPicture());
+
+        // Ctrl+P: small, always on top, and still playing into a live video widget
+        QTest::keyClick(player, Qt::Key_P, Qt::ControlModifier);
+        QVERIFY(waitFor([&] { return s.window->isPictureInPicture() && s.window->width() < 700; }, 8000));
+        QCOMPARE(s.window->winId(), nativeWindow);
+        QVERIFY2(s.window->width() >= 240, qPrintable(QString::number(s.window->width())));
+        QVERIFY(s.window->minimumWidth() < 300);
+#ifdef Q_OS_WIN
+        QVERIFY2(::GetWindowLongPtrW(reinterpret_cast<HWND>(s.window->winId()), GWL_EXSTYLE) & WS_EX_TOPMOST, "the small window is not topmost");
+#endif
+        const double before = s.engine->positionSeconds();
+        QVERIFY2(waitFor([&] { return s.engine->positionSeconds() >= before + 1.0; }, 8000), "playback stopped in picture in picture");
+        QVERIFY(video->isRenderReady());
+        auto* card = s.find<CenterCard>("CenterCard");
+        QVERIFY(card && !card->isVisible());  // no "Video output unavailable"
+        // compact controls: play/pause and the way back are there, the rest is not
+        moveMouse(video, QPoint(60, 60));
+        QVERIFY(waitFor([&] { return s.find<QFrame>("ControlBar")->isVisible(); }, 3000));
+        QVERIFY(s.find<QToolButton>("PlayPauseButton")->isVisible());
+        QVERIFY(s.find<QToolButton>("PictureInPictureButton")->isVisible());
+        QVERIFY(!s.find<QToolButton>("NextButton")->isVisible());
+        QVERIFY(!s.find<QToolButton>("MarksButton")->isVisible());
+        QVERIFY(!s.find<QFrame>("TopBar")->isVisible());
+        s.shot(QStringLiteral("26_picture_in_picture"));
+
+        // Esc leaves the small window first (not the player), and puts everything back
+        QTest::keyClick(player, Qt::Key_Escape);
+        QVERIFY(waitFor([&] { return !s.window->isPictureInPicture(); }, 8000));
+        QVERIFY(player->isVisible());
+        QCOMPARE(s.window->winId(), nativeWindow);
+        QCOMPARE(s.window->minimumSize(), normalMinimum);
+        QVERIFY2(qAbs(s.window->geometry().width() - normalGeometry.width()) <= 2 && qAbs(s.window->geometry().height() - normalGeometry.height()) <= 2,
+                 "the window did not return to its size");
+#ifdef Q_OS_WIN
+        QVERIFY(!(::GetWindowLongPtrW(reinterpret_cast<HWND>(s.window->winId()), GWL_EXSTYLE) & WS_EX_TOPMOST));
+#endif
+        QVERIFY(video->isRenderReady());
+        QVERIFY(s.find<QToolButton>("NextButton")->isVisible());
+        const double afterLeaving = s.engine->positionSeconds();
+        QVERIFY2(waitFor([&] { return s.engine->positionSeconds() >= afterLeaving + 1.0; }, 8000), "playback stopped after leaving picture in picture");
+
+        // closing the application while in it must save the normal window, never the small one
+        QTest::keyClick(player, Qt::Key_P, Qt::ControlModifier);
+        QVERIFY(waitFor([&] { return s.window->isPictureInPicture(); }, 8000));
+        s.closeLikeAUser();
+        QVERIFY(s.start(m_dataDir));
+        QWidget probe;
+        QVERIFY(probe.restoreGeometry(s.app->settings().windowGeometry()));
+        QVERIFY2(probe.width() > 900, qPrintable(QString::number(probe.width())));
+        s.closeLikeAUser();
+    }
+
+    // The small window from a maximized window and from fullscreen: each goes back to what it was, the native
+    // window is never re-created, and the "remember fullscreen" setting only records what the user chose.
+    void step15_pictureInPictureFromMaximizedAndFromFullscreen()
+    {
+        QVERIFY(s.start(m_dataDir));
+        auto& lib = s.app->library();
+        auto& pc = s.app->playback();
+        s.app->settings().setAutoSkipEnding(false);
+        s.app->settings().setAutoSkipIntro(false);
+        s.app->settings().setFullscreenBehavior(FullscreenBehavior::Manual);
+        Episode ep;
+        for (const Episode& e : lib.episodes(m_showId))
+            if (e.file.path.endsWith(QStringLiteral("long_resume_test.mkv"), Qt::CaseInsensitive)) ep = e;
+        QVERIFY(ep.id != kInvalidId);
+        lib.resetProgress({ep.file.id});
+
+        s.window->showMaximized();
+        QVERIFY(waitFor([&] { return s.window->isMaximized(); }, 8000));
+        QSignalSpy now(&pc, &PlaybackController::nowPlaying);
+        s.window->startPlayback({ContextType::Show, m_showId}, ep.file.id, StartMode::FromStart);
+        auto* player = s.window->findChild<PlayerView*>();
+        auto* video = player ? player->findChild<MpvWidget*>() : nullptr;
+        QVERIFY(player && video);
+        QVERIFY(waitFor([&] { return now.count() >= 1 && pc.positionMs() >= 1000; }, 20000));
+        const QSize minimumBefore = s.window->minimumSize();
+        const WId nativeWindow = s.window->winId();
+
+        // maximized -> small -> maximized
+        QTest::keyClick(player, Qt::Key_P, Qt::ControlModifier);
+        QVERIFY(waitFor([&] { return s.window->isPictureInPicture() && s.window->width() < 700; }, 8000));
+        QVERIFY(!s.window->isMaximized());
+        QCOMPARE(s.window->winId(), nativeWindow);
+        const double inSmall = s.engine->positionSeconds();
+        QVERIFY2(waitFor([&] { return s.engine->positionSeconds() >= inSmall + 1.0; }, 8000), "playback stopped in the small window");
+        QTest::keyClick(player, Qt::Key_P, Qt::ControlModifier);
+        QVERIFY(waitFor([&] { return !s.window->isPictureInPicture() && s.window->isMaximized(); }, 8000));
+        QCOMPARE(s.window->minimumSize(), minimumBefore);
+        QCOMPARE(s.window->winId(), nativeWindow);
+        QVERIFY(video->isRenderReady());
+
+        // fullscreen -> small -> fullscreen, without the remembered choice following the small window around
+        s.app->settings().setFullscreenBehavior(FullscreenBehavior::Remember);
+        clickButton(s.find<QToolButton>("FullscreenButton"));
+        QVERIFY(waitFor([&] { return s.window->isFullScreen(); }, 8000));
+        QVERIFY(s.app->settings().lastFullscreen());  // the user's own choice is remembered
+        QTest::keyClick(player, Qt::Key_P, Qt::ControlModifier);
+        QVERIFY(waitFor([&] { return s.window->isPictureInPicture() && !s.window->isFullScreen() && s.window->width() < 700; }, 8000));
+        QVERIFY(s.app->settings().lastFullscreen());  // still: going to the small window was not a choice to leave fullscreen
+        QCOMPARE(s.window->winId(), nativeWindow);
+        QTest::keyClick(player, Qt::Key_P, Qt::ControlModifier);
+        QVERIFY(waitFor([&] { return !s.window->isPictureInPicture() && s.window->isFullScreen(); }, 8000));
+        QVERIFY(s.app->settings().lastFullscreen());
+        QCOMPARE(s.window->winId(), nativeWindow);
+        QVERIFY(video->isRenderReady());
+
+        // F in the small window goes back to the full window instead of making it fullscreen
+        QTest::keyClick(player, Qt::Key_P, Qt::ControlModifier);
+        QVERIFY(waitFor([&] { return s.window->isPictureInPicture(); }, 8000));
+        QTest::keyClick(player, Qt::Key_F);
+        QVERIFY(waitFor([&] { return !s.window->isPictureInPicture(); }, 8000));
+        QVERIFY(s.window->isFullScreen());  // it had been fullscreen before the small window
+
+        // leaving fullscreen is the user's choice, and is remembered
+        QTest::keyClick(player, Qt::Key_F);
+        QVERIFY(waitFor([&] { return !s.window->isFullScreen(); }, 8000));
+        QVERIFY(!s.app->settings().lastFullscreen());
+        // the window state flags settle a moment after the switch
+        QVERIFY2(waitFor([&] { return s.window->isMaximized(); }, 5000),
+                 qPrintable(QStringLiteral("window state %1, geometry %2x%3").arg(int(s.window->windowState())).arg(s.window->width()).arg(s.window->height())));
+        s.app->settings().setFullscreenBehavior(FullscreenBehavior::Manual);
         s.closeLikeAUser();
     }
 };
