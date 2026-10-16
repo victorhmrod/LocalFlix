@@ -83,7 +83,7 @@ SettingsView::SettingsView(ApplicationController& app, const QString& engineInfo
     pf->addRow(note(QStringLiteral("Openings and endings are found through the chapters stored in the video file (titled Opening, OP, Intro, Ending, ED, Credits…). "
                                    "When the player is inside one, a <b>Skip</b> button appears (Enter also works); these options skip it by themselves. "
                                    "Skipping an ending that lasts until the end of the file finishes the episode, so the next one starts as usual. "
-                                   "Files without such chapters have nothing to skip.")));
+                                   "For files without such chapters, mark the ending (and the opening) once per season with the flag button in the player.")));
     pf->addRow(QStringLiteral("Preferred audio language"), m_audioLang);
     pf->addRow(QStringLiteral("Preferred subtitle language"), m_subLang);
     pf->addRow(QStringLiteral("Default volume"), volumeRow);

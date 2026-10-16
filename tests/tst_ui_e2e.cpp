@@ -695,6 +695,64 @@ private slots:
         s.closeLikeAUser();
     }
 
+    // The marks menu: for an episode of a file without chapters, mark where the ending starts; it is stored for
+    // the season, the Skip Ending button appears, and skipping it ends the episode through end-of-file.
+    void step13_markTheEndingOfASeasonFromThePlayer()
+    {
+        QVERIFY(s.start(m_dataDir));
+        auto& lib = s.app->library();
+        auto& pc = s.app->playback();
+        s.app->settings().setAutoSkipIntro(false);  // the menu and the button are under test here
+        s.app->settings().setAutoSkipEnding(false);
+        Episode ep;
+        for (const Episode& e : lib.episodes(m_showId))
+            if (e.file.path.endsWith(QStringLiteral("long_resume_test.mkv"), Qt::CaseInsensitive)) ep = e;
+        QVERIFY(ep.id != kInvalidId);
+        QVERIFY(!lib.seasonSkipMarks(ep.seasonId).any());
+
+        QSignalSpy now(&pc, &PlaybackController::nowPlaying);
+        s.window->startPlayback({ContextType::Show, m_showId}, ep.file.id, StartMode::FromStart);
+        auto* player = s.window->findChild<PlayerView*>();
+        QVERIFY(player);
+        QVERIFY(waitFor([&] { return now.count() >= 1 && pc.positionMs() >= 500; }, 20000));
+        pc.seekToMs(30000);
+        QVERIFY(waitFor([&] { return s.engine->positionSeconds() >= 29.5; }, 8000));
+        pc.setPaused(true);
+        QVERIFY(waitFor([&] { return pc.state() == PlaybackState::Paused; }, 8000));
+
+        // open the menu the way a click would (the popup itself is modal), and use its entries
+        auto* marksButton = s.find<QToolButton>("MarksButton");
+        QVERIFY(marksButton && marksButton->menu());
+        QMenu* menu = marksButton->menu();
+        emit menu->aboutToShow();
+        QStringList entries;
+        QAction* endingStart = nullptr;
+        for (QAction* a : menu->actions()) {
+            entries << a->text();
+            if (a->text().startsWith(QStringLiteral("Ending starts here"))) endingStart = a;
+        }
+        QVERIFY2(endingStart && endingStart->isEnabled(), qPrintable(entries.join(QLatin1Char('|'))));
+        endingStart->trigger();
+
+        const SeasonSkipMarks marks = lib.seasonSkipMarks(ep.seasonId);
+        QVERIFY(marks.hasEnding());
+        QVERIFY2(qAbs(marks.endingFromEndMs - 10000) < 2500, qPrintable(QString::number(marks.endingFromEndMs)));  // 30 s into 40 s
+        auto* skip = player->findChild<QPushButton*>("SkipSegmentButton");
+        QVERIFY(skip);
+        QVERIFY2(waitFor([&] { return skip->isVisible(); }, 8000), "no Skip Ending button after marking the ending");
+        QCOMPARE(skip->text(), QStringLiteral("Skip Ending"));
+        s.shot(QStringLiteral("25_marked_ending_button"));
+
+        // skipping, even while paused, finishes the episode through the engine's end-of-file (10 s early)
+        QSignalSpy completed(&pc, &PlaybackController::itemCompleted);
+        QElapsedTimer clock;
+        clock.start();
+        QTest::mouseClick(skip, Qt::LeftButton);
+        QVERIFY2(waitFor([&] { return completed.count() >= 1; }, 8000), "Skip Ending did not finish the episode");
+        QVERIFY(clock.elapsed() < 6000);
+        QVERIFY(lib.episode(ep.id)->progress.completed);
+        s.closeLikeAUser();
+    }
 };
 
 int main(int argc, char** argv)

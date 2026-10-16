@@ -75,6 +75,7 @@ const char* pathFor(Icon i)
     case Icon::Warning: return "M1 21h22L12 2 1 21zm12-3h-2v-2h2v2zm0-4h-2v-4h2v4z";
     case Icon::Replay:
         return "M12 5V1L7 6l5 5V7c3.31 0 6 2.69 6 6s-2.69 6-6 6-6-2.69-6-6H4c0 4.42 3.58 8 8 8s8-3.58 8-8-3.58-8-8-8z";
+    case Icon::Flag: return "M14.4 6L14 4H5v17h2v-7h5.6l.4 2h7V6z";
     }
     return "";
 }

@@ -217,6 +217,13 @@ void PlayerView::buildUi()
     }
     m_speedButton->setMenu(m_speedMenu);
 
+    m_marksButton = makeButton(Icon::Flag, QStringLiteral("Mark the opening / ending for this season"), 24);
+    m_marksButton->setObjectName(QStringLiteral("MarksButton"));
+    m_marksButton->setPopupMode(QToolButton::InstantPopup);
+    m_marksMenu = new QMenu(m_marksButton);
+    m_marksButton->setMenu(m_marksMenu);
+    connect(m_marksMenu, &QMenu::aboutToShow, this, &PlayerView::rebuildMarksMenu);
+
     m_audioButton = makeButton(Icon::Audio, QStringLiteral("Audio track (A)"), 24);
     m_audioButton->setPopupMode(QToolButton::InstantPopup);
     m_audioMenu = new QMenu(m_audioButton);
@@ -249,6 +256,7 @@ void PlayerView::buildUi()
     buttons->addWidget(m_volume);
     buttons->addStretch(1);
     buttons->addWidget(m_speedButton);
+    buttons->addWidget(m_marksButton);
     buttons->addWidget(m_audioButton);
     buttons->addWidget(m_subtitleButton);
     buttons->addWidget(m_fullscreenButton);
@@ -329,6 +337,7 @@ void PlayerView::buildUi()
     connect(m_audioMenu, &QMenu::aboutToHide, this, [this] { m_hideTimer.start(kAutoHideMs); });
     connect(m_subtitleMenu, &QMenu::aboutToHide, this, [this] { m_hideTimer.start(kAutoHideMs); });
     connect(m_speedMenu, &QMenu::aboutToHide, this, [this] { m_hideTimer.start(kAutoHideMs); });
+    connect(m_marksMenu, &QMenu::aboutToHide, this, [this] { m_hideTimer.start(kAutoHideMs); });
 }
 
 void PlayerView::buildShortcuts()
@@ -445,7 +454,7 @@ void PlayerView::wheelEvent(QWheelEvent* e)
 bool PlayerView::controlsAreHot() const
 {
     if (m_controls->underMouse() || m_topBar->underMouse() || m_card->underMouse()) return true;
-    return m_audioMenu->isVisible() || m_subtitleMenu->isVisible() || m_speedMenu->isVisible();
+    return m_audioMenu->isVisible() || m_subtitleMenu->isVisible() || m_speedMenu->isVisible() || m_marksMenu->isVisible();
 }
 
 void PlayerView::showControls()
@@ -676,6 +685,70 @@ void PlayerView::rebuildTrackMenus()
 
     m_audioButton->setEnabled(m_playback.isActive());
     m_subtitleButton->setEnabled(m_playback.isActive());
+}
+
+// The opening and the ending are found through the file's chapters. For files without them the user marks them
+// once, here, and the marks apply to every episode of the season (chapters, where a file has them, win).
+void PlayerView::rebuildMarksMenu()
+{
+    m_marksMenu->clear();
+    auto note = [this](const QString& text) {
+        QAction* a = m_marksMenu->addAction(text);
+        a->setEnabled(false);
+        return a;
+    };
+
+    if (!m_playback.canMarkSkips()) {
+        note(m_entry.valid() && m_entry.seasonId == kInvalidId ? QStringLiteral("Marks are for episodes of a show, not movies")
+                                                                : QStringLiteral("Marks are available while an episode plays"));
+        return;
+    }
+
+    const qint64 here = m_playback.positionMs();
+    const qint64 pending = m_playback.pendingIntroStartMs();
+    const SeasonSkipMarks marks = m_playback.skipMarks();
+
+    note(QStringLiteral("Applies to every episode of this season"));
+    m_marksMenu->addSeparator();
+
+    // The video keeps playing while the menu is open, so every mark is for the position the menu was opened at.
+    QAction* introStart = m_marksMenu->addAction(QStringLiteral("Opening starts here (%1)").arg(formatClock(here)));
+    connect(introStart, &QAction::triggered, this, [this, here] {
+        if (m_playback.markIntroStartHere(here))
+            showOsd(QStringLiteral("Opening start set at %1. Now mark where it ends.").arg(formatClock(here)));
+    });
+    QAction* introEnd = m_marksMenu->addAction(pending >= 0 ? QStringLiteral("Opening ends here (%1), it started at %2").arg(formatClock(here), formatClock(pending))
+                                                            : QStringLiteral("Opening ends here (mark its start first)"));
+    introEnd->setEnabled(pending >= 0);
+    connect(introEnd, &QAction::triggered, this, [this, here, pending] {
+        showOsd(m_playback.markIntroEndHere(here)
+                    ? QStringLiteral("Opening marked %1 – %2 for this season").arg(formatClock(pending), formatClock(here))
+                    : QStringLiteral("The opening must end at least 2 s after its start"));
+    });
+    QAction* ending = m_marksMenu->addAction(QStringLiteral("Ending starts here (%1)").arg(formatClock(here)));
+    connect(ending, &QAction::triggered, this, [this, here] {
+        const qint64 fromEnd = m_playback.durationMs() - here;
+        showOsd(m_playback.markEndingStartHere(here)
+                    ? QStringLiteral("Ending marked: the last %1 of every episode of this season").arg(formatClock(fromEnd))
+                    : QStringLiteral("The ending must start at least 2 s before the end"));
+    });
+
+    m_marksMenu->addSeparator();
+    note(marks.hasIntro() ? QStringLiteral("Opening: %1 – %2").arg(formatClock(marks.introStartMs), formatClock(marks.introEndMs))
+                          : QStringLiteral("Opening: not marked"));
+    note(marks.hasEnding() ? QStringLiteral("Ending: the last %1").arg(formatClock(marks.endingFromEndMs)) : QStringLiteral("Ending: not marked"));
+    QAction* clearIntro = m_marksMenu->addAction(QStringLiteral("Clear the opening mark"));
+    clearIntro->setEnabled(marks.hasIntro() || pending >= 0);
+    connect(clearIntro, &QAction::triggered, this, [this] {
+        if (m_playback.clearIntroMark()) showOsd(QStringLiteral("Opening mark cleared"));
+    });
+    QAction* clearEnding = m_marksMenu->addAction(QStringLiteral("Clear the ending mark"));
+    clearEnding->setEnabled(marks.hasEnding());
+    connect(clearEnding, &QAction::triggered, this, [this] {
+        if (m_playback.clearEndingMark()) showOsd(QStringLiteral("Ending mark cleared"));
+    });
+    m_marksMenu->addSeparator();
+    note(QStringLiteral("Files with their own chapters keep using them"));
 }
 
 void PlayerView::loadExternalSubtitle()

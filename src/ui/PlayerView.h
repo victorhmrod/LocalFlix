@@ -85,6 +85,7 @@ private:
     void updateNavigation(bool hasPrevious, bool hasNext);
     void updatePlayPauseIcon();
     void rebuildTrackMenus();
+    void rebuildMarksMenu();
     void showOsd(const QString& text);
     void showControls();
     void hideControlsIfIdle();
@@ -120,6 +121,8 @@ private:
     QToolButton* m_muteButton;
     QSlider* m_volume;
     QToolButton* m_speedButton;
+    QToolButton* m_marksButton;  // opening/ending marks of the season
+    QMenu* m_marksMenu;
     QToolButton* m_audioButton;
     QToolButton* m_subtitleButton;
     QToolButton* m_fullscreenButton;
