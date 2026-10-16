@@ -1,7 +1,7 @@
 cmake_minimum_required(VERSION 3.24)
 
 project(LocalFlix
-    VERSION 1.1.0
+    VERSION 1.2.0
     DESCRIPTION "Offline media library and video player"
     LANGUAGES CXX RC)
 
