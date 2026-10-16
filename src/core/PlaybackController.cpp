@@ -29,6 +29,7 @@ PlaybackController::PlaybackController(IPlaybackBackend* backend, EpisodeQueueMa
     connect(m_backend, &IPlaybackBackend::pausedChanged, this, &PlaybackController::onPausedChanged);
     connect(m_backend, &IPlaybackBackend::tracksChanged, this, &PlaybackController::tracksChanged);
     connect(m_backend, &IPlaybackBackend::chaptersChanged, this, &PlaybackController::onChapters);
+    connect(m_library, &LibraryManager::skipMarksChanged, this, &PlaybackController::onSkipMarksChanged);
     connect(m_queue, &EpisodeQueueManager::queueChanged, this, &PlaybackController::onQueueChanged);
 
     m_advanceTimer.setSingleShot(true);
@@ -152,6 +153,7 @@ void PlaybackController::onFileLoaded(quint64 token)
     // Chapters are known by now. Starting (or resuming) inside an opening may
     // skip it right away, so this comes after the UI knows what is playing.
     m_chapters = m_backend->chapters();
+    m_marks = m_library->seasonSkipMarks(m_current.seasonId);
     rebuildSegments();
     updateActiveSegment();
 }
@@ -409,6 +411,8 @@ bool PlaybackController::autoSkipEnabled(SegmentKind kind) const
 void PlaybackController::clearSegments()
 {
     m_chapters.clear();
+    m_marks = SeasonSkipMarks{};
+    m_pendingIntroStartMs = -1;
     m_segments.clear();
     m_handled.clear();
     if (m_activeSegment.valid()) {
@@ -419,13 +423,76 @@ void PlaybackController::clearSegments()
 
 void PlaybackController::rebuildSegments()
 {
-    m_segments = detectSkipSegments(m_chapters, m_durationMs);
+    m_segments = skipSegmentsFor(m_chapters, m_marks, m_durationMs);
 }
 
 void PlaybackController::markSegmentsHandledAt(qint64 positionMs)
 {
     for (const SkipSegment& s : m_segments)
-        if (s.contains(positionMs)) m_handled.insert(s.startMs);
+        if (s.contains(positionMs)) m_handled.insert(s.key());
+}
+
+// ------------------------------------------------------------------ marks of the season
+
+void PlaybackController::onSkipMarksChanged(Id seasonId)
+{
+    if ((m_state != PlaybackState::Playing && m_state != PlaybackState::Paused) || seasonId == kInvalidId || seasonId != m_current.seasonId)
+        return;
+    m_marks = m_library->seasonSkipMarks(seasonId);
+    rebuildSegments();
+    // Marking where the ending starts puts the playhead inside it: that must not trigger the skip it was meant to set up.
+    markSegmentsHandledAt(m_positionMs);
+    updateActiveSegment();
+}
+
+bool PlaybackController::canMarkSkips() const
+{
+    return (m_state == PlaybackState::Playing || m_state == PlaybackState::Paused) && m_current.seasonId != kInvalidId;
+}
+
+bool PlaybackController::markIntroStartHere(qint64 atMs)
+{
+    if (!canMarkSkips()) return false;
+    m_pendingIntroStartMs = atMs >= 0 ? atMs : m_positionMs;
+    return true;
+}
+
+bool PlaybackController::markIntroEndHere(qint64 atMs)
+{
+    const qint64 at = atMs >= 0 ? atMs : m_positionMs;
+    if (!canMarkSkips() || m_pendingIntroStartMs < 0 || at - m_pendingIntroStartMs < kMinSkipSegmentMs) return false;
+    SeasonSkipMarks marks = m_marks;
+    marks.introStartMs = m_pendingIntroStartMs;
+    marks.introEndMs = at;
+    m_pendingIntroStartMs = -1;
+    return m_library->setSeasonSkipMarks(m_current.seasonId, marks);
+}
+
+bool PlaybackController::markEndingStartHere(qint64 atMs)
+{
+    if (!canMarkSkips() || m_durationMs <= 0) return false;
+    const qint64 fromEnd = m_durationMs - (atMs >= 0 ? atMs : m_positionMs);
+    if (fromEnd < kMinSkipSegmentMs) return false;
+    SeasonSkipMarks marks = m_marks;
+    marks.endingFromEndMs = fromEnd;
+    return m_library->setSeasonSkipMarks(m_current.seasonId, marks);
+}
+
+bool PlaybackController::clearIntroMark()
+{
+    if (!canMarkSkips()) return false;
+    SeasonSkipMarks marks = m_marks;
+    marks.introStartMs = marks.introEndMs = -1;
+    m_pendingIntroStartMs = -1;
+    return m_library->setSeasonSkipMarks(m_current.seasonId, marks);
+}
+
+bool PlaybackController::clearEndingMark()
+{
+    if (!canMarkSkips()) return false;
+    SeasonSkipMarks marks = m_marks;
+    marks.endingFromEndMs = -1;
+    return m_library->setSeasonSkipMarks(m_current.seasonId, marks);
 }
 
 // Tracks which opening/ending the playhead is in (the Skip button follows it)
@@ -450,7 +517,7 @@ void PlaybackController::updateActiveSegment()
         emit skipSegmentChanged(inside);
     }
 
-    if (inside.valid() && m_state == PlaybackState::Playing && autoSkipEnabled(inside.kind) && !m_handled.contains(inside.startMs))
+    if (inside.valid() && m_state == PlaybackState::Playing && autoSkipEnabled(inside.kind) && !m_handled.contains(inside.key()))
         skipSegment(inside, /*automatic=*/true);
 }
 
@@ -462,7 +529,7 @@ void PlaybackController::skipActiveSegment()
 void PlaybackController::skipSegment(const SkipSegment& segment, bool automatic)
 {
     if (m_state != PlaybackState::Playing && m_state != PlaybackState::Paused) return;
-    m_handled.insert(segment.startMs);
+    m_handled.insert(segment.key());
     // For an ending that runs to the end of the file this seeks to the very end:
     // the engine then reports a natural end-of-file, which completes the item and
     // advances exactly as if it had been watched. Nothing here completes anything.

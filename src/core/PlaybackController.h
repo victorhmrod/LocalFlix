@@ -70,6 +70,22 @@ public:
     // an ending that runs to the end of the file seeks to the end, so the item
     // then completes and advances through the normal end-of-file path.
     void skipActiveSegment();
+
+    // ---- opening/ending marks of the season being watched ----------------
+    // For files whose chapters do not say where the opening/ending are: the user marks them while watching and
+    // they apply to every episode of the season that has no chapters for it. Only episodes have a season.
+    bool canMarkSkips() const;
+    SeasonSkipMarks skipMarks() const { return m_marks; }
+    // The opening starts here / ends here (the end saves both, once it is after the start). `atMs` is the position
+    // to mark; -1 = where the playhead is now (a menu that stays open while the video plays passes the position
+    // it was opened at).
+    bool markIntroStartHere(qint64 atMs = -1);
+    bool markIntroEndHere(qint64 atMs = -1);
+    qint64 pendingIntroStartMs() const { return m_pendingIntroStartMs; }
+    // The ending starts here: stored as "the last N ms" so it fits episodes of other lengths.
+    bool markEndingStartHere(qint64 atMs = -1);
+    bool clearIntroMark();
+    bool clearEndingMark();
     // Flushes progress and stops the backend; safe to call more than once.
     void shutdown();
 
@@ -126,6 +142,7 @@ private slots:
     void onPosition(double seconds);
     void onDuration(double seconds);
     void onChapters(QVector<lf::ChapterInfo> chapters);
+    void onSkipMarksChanged(lf::Id seasonId);
     void onPausedChanged(bool paused);
     void onQueueChanged();
     void onAdvanceTimeout();
@@ -162,9 +179,11 @@ private:
     // start is in m_handled is never skipped automatically again: it was skipped
     // already, or the user seeked into it on purpose. Both reset with every load.
     QVector<ChapterInfo> m_chapters;
+    SeasonSkipMarks m_marks;  // of the season of the current episode, the fallback where chapters say nothing
+    qint64 m_pendingIntroStartMs = -1;
     QVector<SkipSegment> m_segments;
     SkipSegment m_activeSegment;
-    QSet<qint64> m_handled;
+    QSet<qint64> m_handled;   // SkipSegment::key()
 
     QTimer m_advanceTimer;
     QElapsedTimer m_advanceClock;

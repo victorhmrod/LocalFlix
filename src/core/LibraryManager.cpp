@@ -659,6 +659,23 @@ void LibraryManager::saveTrackSelection(Id mediaFileId, int audioTrack, int subt
     });
 }
 
+SeasonSkipMarks LibraryManager::seasonSkipMarks(Id seasonId)
+{
+    if (seasonId == kInvalidId) return {};
+    return guarded<SeasonSkipMarks>([&] { return m_repo.seasonSkipMarks(seasonId); });
+}
+
+bool LibraryManager::setSeasonSkipMarks(Id seasonId, const SeasonSkipMarks& marks)
+{
+    if (seasonId == kInvalidId) return false;
+    const bool ok = guarded<bool>([&] {
+        m_repo.setSeasonSkipMarks(seasonId, marks);
+        return true;
+    });
+    if (ok) emit skipMarksChanged(seasonId);
+    return ok;
+}
+
 void LibraryManager::setMediaDuration(Id mediaFileId, qint64 durationMs)
 {
     guarded<bool>([&] {
@@ -825,6 +842,7 @@ QueueEntry LibraryManager::toEntry(const Episode& e, const QString& showTitle) c
     q.kind = MediaKind::Episode;
     q.itemId = e.id;
     q.showId = e.showId;
+    q.seasonId = e.seasonId;
     q.mediaFileId = e.file.id;
     q.title = episodeLabel(e);
     q.contextTitle = showTitle;

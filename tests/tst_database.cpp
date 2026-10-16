@@ -108,6 +108,58 @@ private slots:
         QVERIFY(QFileInfo::exists(db.backupPath()));
     }
 
+    void releaseOneLibraryMigratesToSchemaTwoKeepingEverythingAndWritingABackup()
+    {
+        QTemporaryDir dir;
+        const QString path = QDir(dir.path()).filePath(QStringLiteral("library.db"));
+
+        // A library as written by 1.0.0 and 1.1.0: only schema v1 existed.
+        {
+            DatabaseManager old(path, std::vector<Migration>{defaultMigrations().front()});
+            QVERIFY(old.open());
+            QCOMPARE(old.schemaVersion(), 1);
+            execSql(old.database(), QStringLiteral("INSERT INTO shows(title, created_at, updated_at) VALUES('Old show', 1, 1)"));
+            execSql(old.database(), QStringLiteral("INSERT INTO seasons(show_id, season_number, title, sort_order) VALUES(1, 1, 'Season 1', 0)"));
+            execSql(old.database(), QStringLiteral("INSERT INTO media_files(path, added_at) VALUES('C:/x/y.mkv', 1)"));
+            execSql(old.database(), QStringLiteral("INSERT INTO playback_progress(media_file_id, position_ms) VALUES(1, 4242)"));
+            execSql(old.database(), QStringLiteral("INSERT INTO settings(key, value) VALUES('playback.autoPlayNext', '0')"));
+        }
+
+        DatabaseManager db(path);
+        QString err;
+        QVERIFY2(db.open(&err), qPrintable(err));
+        QCOMPARE(db.schemaVersion(), 2);
+        QCOMPARE(db.schemaVersion(), db.latestVersion());
+        QVERIFY2(!db.backupPath().isEmpty() && QFileInfo::exists(db.backupPath()), "the v1 library was backed up before migrating");
+        QVERIFY(db.backupPath().contains(QStringLiteral("bak-v1")));
+
+        // everything that was there is still there
+        Stmt show(db.database(), QStringLiteral("SELECT title FROM shows"));
+        show.run();
+        QVERIFY(show.next());
+        QCOMPARE(show.str(0), QStringLiteral("Old show"));
+        Stmt progress(db.database(), QStringLiteral("SELECT position_ms FROM playback_progress WHERE media_file_id = 1"));
+        progress.run();
+        QVERIFY(progress.next());
+        QCOMPARE(progress.i64(0), qint64(4242));
+        Stmt setting(db.database(), QStringLiteral("SELECT value FROM settings WHERE key = 'playback.autoPlayNext'"));
+        setting.run();
+        QVERIFY(setting.next());
+        QCOMPARE(setting.str(0), QStringLiteral("0"));
+
+        // the new table works, starts empty, and follows its season when the season is deleted
+        Stmt marks(db.database(), QStringLiteral("SELECT COUNT(*) FROM season_skip_marks"));
+        marks.run();
+        QVERIFY(marks.next());
+        QCOMPARE(marks.i32(0), 0);
+        execSql(db.database(), QStringLiteral("INSERT INTO season_skip_marks(season_id, ending_from_end_ms) VALUES(1, 30000)"));
+        execSql(db.database(), QStringLiteral("DELETE FROM seasons WHERE id = 1"));
+        Stmt after(db.database(), QStringLiteral("SELECT COUNT(*) FROM season_skip_marks"));
+        after.run();
+        QVERIFY(after.next());
+        QCOMPARE(after.i32(0), 0);
+    }
+
     void failedMigrationRollsBackAndReportsError()
     {
         QTemporaryDir dir;

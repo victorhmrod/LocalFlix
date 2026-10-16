@@ -114,11 +114,30 @@ CREATE TABLE settings (
     return m;
 }
 
+Migration v2()
+{
+    Migration m;
+    m.version = 2;
+    m.description = QStringLiteral("Opening/ending marks per season (for files without chapters)");
+    m.statements = {
+        // -1 = not set. The ending is stored as an offset from the end of the file so one mark fits every
+        // episode of the season, whatever its length.
+        QStringLiteral(R"sql(
+CREATE TABLE season_skip_marks (
+    season_id          INTEGER PRIMARY KEY REFERENCES seasons(id) ON DELETE CASCADE,
+    intro_start_ms     INTEGER NOT NULL DEFAULT -1,
+    intro_end_ms       INTEGER NOT NULL DEFAULT -1,
+    ending_from_end_ms INTEGER NOT NULL DEFAULT -1
+))sql"),
+    };
+    return m;
+}
+
 }  // namespace
 
 const std::vector<Migration>& defaultMigrations()
 {
-    static const std::vector<Migration> all = {v1()};
+    static const std::vector<Migration> all = {v1(), v2()};
     return all;
 }
 

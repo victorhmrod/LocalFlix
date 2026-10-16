@@ -126,6 +126,10 @@ public:
     bool resetProgress(const QVector<Id>& mediaFileIds);
     bool resetShowProgress(Id showId);
 
+    // ---- opening/ending marks of a season ---------------------------------
+    SeasonSkipMarks seasonSkipMarks(Id seasonId);
+    bool setSeasonSkipMarks(Id seasonId, const SeasonSkipMarks& marks);
+
     // ---- continue watching ------------------------------------------------
     ResumeTarget resumeTarget(Id showId);
     QVector<ContinueItem> continueWatching(int limit = 20);
@@ -161,6 +165,8 @@ signals:
     // Episodes/seasons of one show changed (content, order, watched state).
     void showChanged(lf::Id showId);
     void progressChanged(lf::Id mediaFileId);
+    // The opening/ending marks of a season were set or cleared.
+    void skipMarksChanged(lf::Id seasonId);
     void filesVerified(QVector<lf::Id> changedMediaFileIds);
     // Every background check ends with this, even when nothing changed.
     void verificationFinished(int checked, int missingTotal);

@@ -164,4 +164,34 @@ QVector<SkipSegment> detectSkipSegments(const QVector<ChapterInfo>& input, qint6
     return out;
 }
 
+QVector<SkipSegment> skipSegmentsFor(const QVector<ChapterInfo>& chapters, const SeasonSkipMarks& marks, qint64 durationMs)
+{
+    QVector<SkipSegment> out = detectSkipSegments(chapters, durationMs);
+    auto has = [&out](SegmentKind kind) {
+        return std::any_of(out.begin(), out.end(), [kind](const SkipSegment& s) { return s.kind == kind; });
+    };
+
+    if (!has(SegmentKind::Intro) && marks.hasIntro() && marks.introEndMs - marks.introStartMs >= kMinSkipSegmentMs &&
+        (durationMs <= 0 || marks.introEndMs <= durationMs)) {
+        SkipSegment s;
+        s.kind = SegmentKind::Intro;
+        s.startMs = marks.introStartMs;
+        s.endMs = marks.introEndMs;
+        s.title = QStringLiteral("Season mark");
+        out.push_back(s);
+    }
+    if (!has(SegmentKind::Ending) && marks.hasEnding() && marks.endingFromEndMs >= kMinSkipSegmentMs && durationMs > 0 &&
+        marks.endingFromEndMs < durationMs) {
+        SkipSegment s;
+        s.kind = SegmentKind::Ending;
+        s.startMs = durationMs - marks.endingFromEndMs;
+        s.endMs = durationMs;
+        s.toEnd = true;
+        s.title = QStringLiteral("Season mark");
+        out.push_back(s);
+    }
+    std::stable_sort(out.begin(), out.end(), [](const SkipSegment& a, const SkipSegment& b) { return a.startMs < b.startMs; });
+    return out;
+}
+
 }  // namespace lf

@@ -56,6 +56,19 @@ struct Progress {
     bool started() const { return !completed && positionMs >= kMinResumeMs; }
 };
 
+// Where the opening and the ending are in the episodes of one season, for the
+// files whose chapters do not say. The opening is an absolute stretch of the
+// file; the ending is "the last N ms", so it fits episodes of different lengths.
+struct SeasonSkipMarks {
+    qint64 introStartMs = -1;
+    qint64 introEndMs = -1;
+    qint64 endingFromEndMs = -1;
+
+    bool hasIntro() const { return introStartMs >= 0 && introEndMs > introStartMs; }
+    bool hasEnding() const { return endingFromEndMs > 0; }
+    bool any() const { return hasIntro() || hasEnding(); }
+};
+
 struct Show {
     Id id = kInvalidId;
     QString title;
@@ -130,6 +143,7 @@ struct QueueEntry {
     MediaKind kind = MediaKind::Episode;
     Id itemId = kInvalidId;  // episode id or movie id
     Id showId = kInvalidId;  // 0 for movies
+    Id seasonId = kInvalidId;  // 0 for movies
     Id mediaFileId = kInvalidId;
     QString title;       // "S1E3 · The Title" or the movie title
     QString contextTitle;  // show title, or empty for movies

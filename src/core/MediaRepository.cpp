@@ -758,6 +758,38 @@ QVector<Movie> MediaRepository::startedMovies(int limit) const
     return out;
 }
 
+// ------------------------------------------------------------------ season skip marks
+
+SeasonSkipMarks MediaRepository::seasonSkipMarks(Id seasonId) const
+{
+    Stmt s(m_db, QStringLiteral("SELECT intro_start_ms, intro_end_ms, ending_from_end_ms FROM season_skip_marks WHERE season_id = ?"));
+    s.bind(seasonId).run();
+    SeasonSkipMarks marks;
+    if (s.next()) {
+        marks.introStartMs = s.i64(0);
+        marks.introEndMs = s.i64(1);
+        marks.endingFromEndMs = s.i64(2);
+    }
+    return marks;
+}
+
+void MediaRepository::setSeasonSkipMarks(Id seasonId, const SeasonSkipMarks& marks)
+{
+    if (!marks.any()) {
+        execSql(m_db, QStringLiteral("DELETE FROM season_skip_marks WHERE season_id = ?"), {seasonId});
+        return;
+    }
+    // a half-set opening is not stored
+    const qint64 introStart = marks.hasIntro() ? marks.introStartMs : -1;
+    const qint64 introEnd = marks.hasIntro() ? marks.introEndMs : -1;
+    const qint64 ending = marks.hasEnding() ? marks.endingFromEndMs : -1;
+    execSql(m_db,
+            QStringLiteral("INSERT INTO season_skip_marks(season_id, intro_start_ms, intro_end_ms, ending_from_end_ms) VALUES(?,?,?,?) "
+                           "ON CONFLICT(season_id) DO UPDATE SET intro_start_ms = excluded.intro_start_ms, "
+                           "intro_end_ms = excluded.intro_end_ms, ending_from_end_ms = excluded.ending_from_end_ms"),
+            {seasonId, introStart, introEnd, ending});
+}
+
 // ------------------------------------------------------------------ settings
 
 QMap<QString, QString> MediaRepository::allSettings() const

@@ -1,6 +1,7 @@
 #pragma once
 
 #include "IPlaybackBackend.h"
+#include "Types.h"
 
 #include <QMetaType>
 #include <QString>
@@ -29,6 +30,9 @@ struct SkipSegment {
 
     bool valid() const { return endMs > startMs; }
     bool contains(qint64 ms) const { return ms >= startMs && ms < endMs; }
+    // Identifies the segment within one file for "already skipped / seeked into". An ending that
+    // runs to the end of the file moves with the duration, so it is keyed by that, not by its start.
+    qint64 key() const { return toEnd ? -1 - qint64(kind) : startMs; }
     QString label() const { return kind == SegmentKind::Intro ? QStringLiteral("Skip Intro") : QStringLiteral("Skip Ending"); }
     QString noun() const { return kind == SegmentKind::Intro ? QStringLiteral("intro") : QStringLiteral("ending"); }
 };
@@ -49,6 +53,12 @@ ChapterRole classifyChapterTitle(const QString& title);
 // chapter, so a post-credits scene that has its own chapter is kept, or at the
 // end of the file (`toEnd`). `durationMs <= 0` (unknown) drops a last segment.
 QVector<SkipSegment> detectSkipSegments(const QVector<ChapterInfo>& chapters, qint64 durationMs);
+
+// detectSkipSegments() plus the season's marks as a fallback: for each kind, a segment found through the
+// chapters wins, and the mark only fills in when the chapters give none of that kind. The opening mark is an
+// absolute stretch of the file, the ending mark is "the last N ms" (a segment that runs to the end). A mark
+// that does not fit this file (an opening past its end, an ending as long as the whole file) is ignored.
+QVector<SkipSegment> skipSegmentsFor(const QVector<ChapterInfo>& chapters, const SeasonSkipMarks& marks, qint64 durationMs);
 
 }  // namespace lf
 

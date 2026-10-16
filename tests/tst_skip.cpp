@@ -24,6 +24,13 @@ QVector<ChapterInfo> typicalChapters()
             ch(QStringLiteral("Ending"), 540),  ch(QStringLiteral("Preview"), 585)};
 }
 
+// Both automatic options default to on; the tests of the button and of manual skipping turn them off.
+void manualOnly(Env& env)
+{
+    env.app->settings().setAutoSkipIntro(false);
+    env.app->settings().setAutoSkipEnding(false);
+}
+
 bool startWith(Env& env, Id showId, const Episode& e, const QVector<ChapterInfo>& chapters, double durationSeconds = 600,
                StartMode mode = StartMode::FromStart)
 {
@@ -187,11 +194,12 @@ private slots:
 
     // ------------------------------------------------------------ the button (nothing automatic)
 
-    void theSkipSegmentFollowsThePlayheadAndNothingIsSkippedByDefault()
+    void theSkipSegmentFollowsThePlayheadAndNothingIsSkippedWhenTheOptionsAreOff()
     {
         Env env;
         Id showId = 0;
         const auto eps = env.makeShow(QStringLiteral("Button"), 2, &showId);
+        manualOnly(env);
         auto& pc = env.app->playback();
         QSignalSpy changed(&pc, &PlaybackController::skipSegmentChanged);
         QSignalSpy skipped(&pc, &PlaybackController::segmentSkipped);
@@ -228,6 +236,7 @@ private slots:
         Env env;
         Id showId = 0;
         const auto eps = env.makeShow(QStringLiteral("Press"), 1, &showId);
+        manualOnly(env);
         auto& pc = env.app->playback();
         QSignalSpy skipped(&pc, &PlaybackController::segmentSkipped);
 
@@ -252,6 +261,7 @@ private slots:
         Env env;
         Id showId = 0;
         const auto eps = env.makeShow(QStringLiteral("PausedButton"), 1, &showId);
+        manualOnly(env);
         auto& pc = env.app->playback();
         QVERIFY(startWith(env, showId, eps[0], typicalChapters()));
         env.backend->tick(40);
@@ -268,6 +278,7 @@ private slots:
         Env env;
         Id showId = 0;
         const auto eps = env.makeShow(QStringLiteral("PausedEnding"), 2, &showId);
+        manualOnly(env);
         env.app->settings().setAutoPlayCountdownSeconds(0);
         auto& pc = env.app->playback();
         QSignalSpy completed(&pc, &PlaybackController::itemCompleted);
@@ -392,7 +403,8 @@ private slots:
         const auto eps = env.makeShow(QStringLiteral("Separate"), 1, &showId);
         auto& pc = env.app->playback();
 
-        env.app->settings().setAutoSkipEnding(true);  // opening stays manual
+        env.app->settings().setAutoSkipIntro(false);  // opening stays manual
+        env.app->settings().setAutoSkipEnding(true);
         QVERIFY(startWith(env, showId, eps[0], typicalChapters()));
         env.backend->tick(40);
         QVERIFY(env.backend->seeks.isEmpty());
@@ -477,6 +489,7 @@ private slots:
         Env env;
         Id showId = 0;
         const auto eps = env.makeShow(QStringLiteral("Late"), 1, &showId);
+        manualOnly(env);
         auto& pc = env.app->playback();
         QVERIFY(startWith(env, showId, eps[0], {}));
         QVERIFY(pc.skipSegments().isEmpty());
@@ -524,6 +537,7 @@ private slots:
         Env env;
         Id showId = 0;
         const auto eps = env.makeShow(QStringLiteral("ManualEnding"), 2, &showId);
+        manualOnly(env);
         env.app->settings().setAutoPlayCountdownSeconds(0);
         auto& pc = env.app->playback();
         QSignalSpy completed(&pc, &PlaybackController::itemCompleted);
@@ -635,6 +649,408 @@ private slots:
         pc.skipActiveSegment();
         QCOMPARE(int(env.backend->seeks.size()), seeks);
         QCOMPARE(pc.state(), PlaybackState::AdvancePending);
+    }
+
+    // ------------------------------------------------------------ defaults
+
+    void bothAutomaticOptionsAreOnByDefaultAndTheUsersChoiceSticks()
+    {
+        Env env;
+        QVERIFY(env.app->settings().autoSkipIntro());
+        QVERIFY(env.app->settings().autoSkipEnding());
+        env.app->settings().setAutoSkipEnding(false);
+        env.restart();
+        QVERIFY(env.app->settings().autoSkipIntro());
+        QVERIFY(!env.app->settings().autoSkipEnding());
+    }
+
+    // ------------------------------------------------------------ season marks: segments
+
+    void anEndingMarkIsTheLastStretchOfEveryFileWhateverItsLength()
+    {
+        SeasonSkipMarks marks;
+        marks.endingFromEndMs = 30000;
+        const auto a = skipSegmentsFor({}, marks, 600000);
+        QCOMPARE(a.size(), 1);
+        QCOMPARE(int(a[0].kind), int(SegmentKind::Ending));
+        QCOMPARE(a[0].startMs, qint64(570000));
+        QCOMPARE(a[0].endMs, qint64(600000));
+        QVERIFY(a[0].toEnd);
+        const auto b = skipSegmentsFor({}, marks, 1325909);
+        QCOMPARE(b.size(), 1);
+        QCOMPARE(b[0].startMs, qint64(1295909));
+        QVERIFY(b[0].toEnd);
+    }
+
+    void anOpeningMarkIsAnAbsoluteStretchOfTheFile()
+    {
+        SeasonSkipMarks marks;
+        marks.introStartMs = 45000;
+        marks.introEndMs = 110000;
+        const auto segs = skipSegmentsFor({}, marks, 600000);
+        QCOMPARE(segs.size(), 1);
+        QCOMPARE(int(segs[0].kind), int(SegmentKind::Intro));
+        QCOMPARE(segs[0].startMs, qint64(45000));
+        QCOMPARE(segs[0].endMs, qint64(110000));
+        QVERIFY(!segs[0].toEnd);
+        QCOMPARE(skipSegmentsFor({}, marks, 0).size(), 1);  // an opening does not need the duration
+    }
+
+    void marksThatDoNotFitAFileAreIgnored()
+    {
+        SeasonSkipMarks ending;
+        ending.endingFromEndMs = 30000;
+        QVERIFY(skipSegmentsFor({}, ending, 20000).isEmpty());  // the "ending" would be the whole file
+        QVERIFY(skipSegmentsFor({}, ending, 30000).isEmpty());
+        QVERIFY(skipSegmentsFor({}, ending, 0).isEmpty());      // unknown duration: cannot place it
+        SeasonSkipMarks tiny;
+        tiny.endingFromEndMs = 1000;
+        QVERIFY(skipSegmentsFor({}, tiny, 600000).isEmpty());
+
+        SeasonSkipMarks intro;
+        intro.introStartMs = 45000;
+        intro.introEndMs = 110000;
+        QVERIFY(skipSegmentsFor({}, intro, 100000).isEmpty());  // the file ends before the opening does
+        SeasonSkipMarks brief;
+        brief.introStartMs = 5000;
+        brief.introEndMs = 6000;
+        QVERIFY(skipSegmentsFor({}, brief, 600000).isEmpty());
+    }
+
+    void chaptersWinOverTheMarksKindByKind()
+    {
+        SeasonSkipMarks marks;
+        marks.introStartMs = 5000;
+        marks.introEndMs = 50000;
+        marks.endingFromEndMs = 20000;
+        // chapters for both: the marks are not used at all
+        const auto both = skipSegmentsFor(typicalChapters(), marks, 600000);
+        QCOMPARE(both.size(), 2);
+        QCOMPARE(both[0].startMs, qint64(30000));
+        QCOMPARE(both[1].startMs, qint64(540000));
+
+        // chapters for the ending only: the opening comes from the mark
+        const QVector<ChapterInfo> endingOnly = {ch(QStringLiteral("Episode"), 0), ch(QStringLiteral("Credits"), 560)};
+        const auto mixed = skipSegmentsFor(endingOnly, marks, 600000);
+        QCOMPARE(mixed.size(), 2);
+        QCOMPARE(int(mixed[0].kind), int(SegmentKind::Intro));
+        QCOMPARE(mixed[0].startMs, qint64(5000));
+        QCOMPARE(int(mixed[1].kind), int(SegmentKind::Ending));
+        QCOMPARE(mixed[1].startMs, qint64(560000));  // the chapter's, not 580000 from the mark
+    }
+
+    void aSegmentKeepsItsKeyWhenTheDurationIsRefined()
+    {
+        SeasonSkipMarks marks;
+        marks.endingFromEndMs = 30000;
+        const auto a = skipSegmentsFor({}, marks, 600000);
+        const auto b = skipSegmentsFor({}, marks, 600400);
+        QVERIFY(a[0].startMs != b[0].startMs);
+        QCOMPARE(a[0].key(), b[0].key());
+        QVERIFY(a[0].key() != SkipSegment{}.key());  // not the key of an opening at 0
+    }
+
+    // ------------------------------------------------------------ season marks: storage
+
+    void marksArePerSeasonSurviveARestartAndGoWithTheSeason()
+    {
+        Env env;
+        Id showId = 0;
+        const auto eps = env.makeShow(QStringLiteral("Stored"), 2, &showId);
+        auto& lib = env.app->library();
+        const Id season2 = lib.addSeason(showId, QStringLiteral("Season 2"));
+        QVERIFY(season2 != kInvalidId);
+
+        QVERIFY(!lib.seasonSkipMarks(eps[0].seasonId).any());
+        QSignalSpy changed(&lib, &LibraryManager::skipMarksChanged);
+        SeasonSkipMarks marks;
+        marks.introStartMs = 45000;
+        marks.introEndMs = 110000;
+        marks.endingFromEndMs = 32000;
+        QVERIFY(lib.setSeasonSkipMarks(eps[0].seasonId, marks));
+        QCOMPARE(changed.count(), 1);
+        QCOMPARE(changed.first().at(0).toLongLong(), eps[0].seasonId);
+        SeasonSkipMarks other;
+        other.endingFromEndMs = 5000;
+        QVERIFY(lib.setSeasonSkipMarks(season2, other));
+
+        env.restart();
+        auto& lib2 = env.app->library();
+        const SeasonSkipMarks back = lib2.seasonSkipMarks(eps[0].seasonId);
+        QCOMPARE(back.introStartMs, qint64(45000));
+        QCOMPARE(back.introEndMs, qint64(110000));
+        QCOMPARE(back.endingFromEndMs, qint64(32000));
+        QCOMPARE(lib2.seasonSkipMarks(season2).endingFromEndMs, qint64(5000));  // each season has its own
+        QVERIFY(!lib2.setSeasonSkipMarks(kInvalidId, marks));
+
+        QVERIFY(lib2.deleteSeason(season2));
+        QVERIFY(!lib2.seasonSkipMarks(season2).any());  // gone with the season
+
+        QVERIFY(lib2.setSeasonSkipMarks(eps[0].seasonId, SeasonSkipMarks{}));  // nothing set = removed
+        QVERIFY(!lib2.seasonSkipMarks(eps[0].seasonId).any());
+    }
+
+    void aHalfSetOpeningIsNotStored()
+    {
+        Env env;
+        Id showId = 0;
+        const auto eps = env.makeShow(QStringLiteral("Half"), 1, &showId);
+        SeasonSkipMarks marks;
+        marks.introStartMs = 45000;  // no end
+        marks.endingFromEndMs = 30000;
+        QVERIFY(env.app->library().setSeasonSkipMarks(eps[0].seasonId, marks));
+        const SeasonSkipMarks back = env.app->library().seasonSkipMarks(eps[0].seasonId);
+        QVERIFY(!back.hasIntro());
+        QCOMPARE(back.introStartMs, qint64(-1));
+        QCOMPARE(back.endingFromEndMs, qint64(30000));
+    }
+
+    // ------------------------------------------------------------ season marks: playback
+
+    void aSeasonEndingMarkSkipsEveryEpisodeWithoutChaptersWhateverItsLength()
+    {
+        Env env;
+        Id showId = 0;
+        const auto eps = env.makeShow(QStringLiteral("Marked"), 3, &showId);
+        env.app->settings().setAutoPlayCountdownSeconds(0);
+        SeasonSkipMarks marks;
+        marks.endingFromEndMs = 30000;
+        QVERIFY(env.app->library().setSeasonSkipMarks(eps[0].seasonId, marks));
+        auto& pc = env.app->playback();
+        QSignalSpy completed(&pc, &PlaybackController::itemCompleted);
+
+        QVERIFY(startWith(env, showId, eps[0], {}));
+        QCOMPARE(pc.skipSegments().size(), 1);
+        env.backend->tick(560);  // before the ending
+        QVERIFY(env.backend->seeks.isEmpty());
+        env.backend->tick(571);
+        QCOMPARE(env.backend->seeks.size(), 1);
+        QCOMPARE(env.backend->seeks.last().first, 600.0);
+        QCOMPARE(completed.count(), 0);  // the engine's end-of-file does that
+        env.backend->end(EndReason::Eof);
+        QCOMPARE(completed.count(), 1);
+
+        // the next episode of the season is longer: the same mark, "the last 30 s", fits it
+        QTRY_COMPARE(env.backend->loads.size(), 2);
+        startAndLoad(env.backend, 1300);
+        env.backend->tick(1260);
+        QCOMPARE(env.backend->seeks.size(), 1);
+        env.backend->tick(1275);
+        QCOMPARE(env.backend->seeks.size(), 2);
+        QCOMPARE(env.backend->seeks.last().first, 1300.0);
+    }
+
+    void aSeasonOpeningMarkSkipsEveryEpisodeWithoutChapters()
+    {
+        Env env;
+        Id showId = 0;
+        const auto eps = env.makeShow(QStringLiteral("MarkedIntro"), 1, &showId);
+        SeasonSkipMarks marks;
+        marks.introStartMs = 45000;
+        marks.introEndMs = 110000;
+        QVERIFY(env.app->library().setSeasonSkipMarks(eps[0].seasonId, marks));
+        QVERIFY(startWith(env, showId, eps[0], {}));
+        env.backend->tick(44);
+        QVERIFY(env.backend->seeks.isEmpty());
+        env.backend->tick(46);
+        QCOMPARE(env.backend->seeks.size(), 1);
+        QCOMPARE(env.backend->seeks.last().first, 110.0);
+    }
+
+    void theMarksOfOneSeasonDoNotTouchAnotherSeason()
+    {
+        Env env;
+        Id showId = 0;
+        const auto eps = env.makeShow(QStringLiteral("TwoSeasons"), 2, &showId);
+        const Id season2 = env.app->library().addSeason(showId, QStringLiteral("Season 2"));
+        QVERIFY(env.app->library().moveEpisode(eps[1].id, season2, 0));
+        SeasonSkipMarks marks;
+        marks.endingFromEndMs = 30000;
+        QVERIFY(env.app->library().setSeasonSkipMarks(eps[0].seasonId, marks));
+
+        QVERIFY(startWith(env, showId, eps[1], {}));  // an episode of the other season
+        QVERIFY(env.app->playback().skipSegments().isEmpty());
+        env.backend->tick(590);
+        QVERIFY(env.backend->seeks.isEmpty());
+    }
+
+    void chapterSegmentsWinOverTheSeasonMarkOnTheFilesThatHaveThem()
+    {
+        Env env;
+        Id showId = 0;
+        const auto eps = env.makeShow(QStringLiteral("ChaptersWin"), 1, &showId);
+        SeasonSkipMarks marks;
+        marks.endingFromEndMs = 10000;  // would start at 590 s
+        QVERIFY(env.app->library().setSeasonSkipMarks(eps[0].seasonId, marks));
+        QVERIFY(startWith(env, showId, eps[0], typicalChapters()));
+        env.backend->tick(541);  // the file's own "Ending" chapter starts at 540
+        QCOMPARE(env.backend->seeks.size(), 1);
+        QCOMPARE(env.backend->seeks.last().first, 600.0);
+    }
+
+    void marksSetWhileWatchingApplyAtOnceToTheEpisodeOnScreen()
+    {
+        Env env;
+        Id showId = 0;
+        const auto eps = env.makeShow(QStringLiteral("Live"), 1, &showId);
+        manualOnly(env);
+        auto& pc = env.app->playback();
+        QVERIFY(startWith(env, showId, eps[0], {}));
+        QVERIFY(pc.skipSegments().isEmpty());
+        env.backend->tick(580);
+        SeasonSkipMarks marks;
+        marks.endingFromEndMs = 30000;
+        QVERIFY(env.app->library().setSeasonSkipMarks(eps[0].seasonId, marks));  // e.g. from somewhere else
+        QCOMPARE(pc.skipSegments().size(), 1);
+        QCOMPARE(int(pc.activeSegment().kind), int(SegmentKind::Ending));
+    }
+
+    void markingTheEndingWhileWatchingDoesNotSkipItOnTheSpot()
+    {
+        Env env;
+        Id showId = 0;
+        const auto eps = env.makeShow(QStringLiteral("MarkHere"), 2, &showId);
+        env.app->settings().setAutoPlayCountdownSeconds(0);  // automatic skipping is on, as by default
+        auto& pc = env.app->playback();
+        QVERIFY(startWith(env, showId, eps[0], {}));
+        QVERIFY(pc.canMarkSkips());
+        env.backend->tick(580);
+
+        QVERIFY(pc.markEndingStartHere());
+        QCOMPARE(pc.skipMarks().endingFromEndMs, qint64(20000));
+        QCOMPARE(env.app->library().seasonSkipMarks(eps[0].seasonId).endingFromEndMs, qint64(20000));
+        // the playhead is inside the ending it just marked: it must stay put, but the button is offered
+        QVERIFY(env.backend->seeks.isEmpty());
+        QVERIFY(pc.activeSegment().valid());
+        QCOMPARE(int(pc.activeSegment().kind), int(SegmentKind::Ending));
+        env.backend->tick(582);
+        QVERIFY(env.backend->seeks.isEmpty());
+
+        // the next episode uses it by itself
+        env.backend->end(EndReason::Eof);
+        QTRY_COMPARE(env.backend->loads.size(), 2);
+        startAndLoad(env.backend);
+        env.backend->tick(585);
+        QCOMPARE(env.backend->seeks.size(), 1);
+        QCOMPARE(env.backend->seeks.last().first, 600.0);
+    }
+
+    void markingTheOpeningTakesAStartThenAnEndAfterIt()
+    {
+        Env env;
+        Id showId = 0;
+        const auto eps = env.makeShow(QStringLiteral("MarkIntro"), 2, &showId);
+        env.app->settings().setAutoPlayCountdownSeconds(0);
+        auto& pc = env.app->playback();
+        QVERIFY(startWith(env, showId, eps[0], {}));
+
+        env.backend->tick(45);
+        QVERIFY(!pc.markIntroEndHere());  // no start yet
+        QVERIFY(pc.markIntroStartHere());
+        QCOMPARE(pc.pendingIntroStartMs(), qint64(45000));
+        env.backend->tick(46);
+        QVERIFY(!pc.markIntroEndHere());  // 1 s is not an opening
+        QVERIFY(!pc.skipMarks().hasIntro());
+        env.backend->tick(110);
+        QVERIFY(pc.markIntroEndHere());
+        QCOMPARE(pc.skipMarks().introStartMs, qint64(45000));
+        QCOMPARE(pc.skipMarks().introEndMs, qint64(110000));
+        QCOMPARE(pc.pendingIntroStartMs(), qint64(-1));
+        QVERIFY(env.backend->seeks.isEmpty());
+
+        env.backend->end(EndReason::Eof);
+        QTRY_COMPARE(env.backend->loads.size(), 2);
+        startAndLoad(env.backend);
+        env.backend->tick(46);
+        QCOMPARE(env.backend->seeks.size(), 1);
+        QCOMPARE(env.backend->seeks.last().first, 110.0);
+    }
+
+    void marksCanBeClearedOneKindAtATime()
+    {
+        Env env;
+        Id showId = 0;
+        const auto eps = env.makeShow(QStringLiteral("Clear"), 1, &showId);
+        manualOnly(env);
+        auto& pc = env.app->playback();
+        SeasonSkipMarks marks;
+        marks.introStartMs = 45000;
+        marks.introEndMs = 110000;
+        marks.endingFromEndMs = 30000;
+        QVERIFY(env.app->library().setSeasonSkipMarks(eps[0].seasonId, marks));
+        QVERIFY(startWith(env, showId, eps[0], {}));
+        QCOMPARE(pc.skipSegments().size(), 2);
+
+        QVERIFY(pc.clearEndingMark());
+        QCOMPARE(pc.skipSegments().size(), 1);
+        QCOMPARE(int(pc.skipSegments()[0].kind), int(SegmentKind::Intro));
+        QVERIFY(pc.clearIntroMark());
+        QVERIFY(pc.skipSegments().isEmpty());
+        QVERIFY(!env.app->library().seasonSkipMarks(eps[0].seasonId).any());
+    }
+
+    void aMarkUsesThePositionItWasAskedAtNotWhereThePlayheadHasMovedTo()
+    {
+        // the marks menu stays open while the video plays on: it marks where it was opened
+        Env env;
+        Id showId = 0;
+        const auto eps = env.makeShow(QStringLiteral("MenuOpen"), 1, &showId);
+        manualOnly(env);
+        auto& pc = env.app->playback();
+        QVERIFY(startWith(env, showId, eps[0], {}));
+        env.backend->tick(580);
+        env.backend->tick(590);  // ten seconds pass while the menu is open
+        QVERIFY(pc.markEndingStartHere(580000));
+        QCOMPARE(pc.skipMarks().endingFromEndMs, qint64(20000));
+
+        QVERIFY(pc.markIntroStartHere(45000));
+        QCOMPARE(pc.pendingIntroStartMs(), qint64(45000));
+        QVERIFY(pc.markIntroEndHere(110000));
+        QCOMPARE(pc.skipMarks().introEndMs, qint64(110000));
+    }
+
+    void anEndingMarkTooCloseToTheEndIsRefused()
+    {
+        Env env;
+        Id showId = 0;
+        const auto eps = env.makeShow(QStringLiteral("TooClose"), 1, &showId);
+        manualOnly(env);
+        auto& pc = env.app->playback();
+        QVERIFY(startWith(env, showId, eps[0], {}));
+        env.backend->tick(599);
+        QVERIFY(!pc.markEndingStartHere());
+        QVERIFY(!env.app->library().seasonSkipMarks(eps[0].seasonId).any());
+    }
+
+    void moviesHaveNoSeasonSoTheyCannotBeMarked()
+    {
+        Env env;
+        env.app->importer().importMoviesSync({env.makeFile(QStringLiteral("mv/solo.mkv"))});
+        const Movie movie = env.app->library().movies().first();
+        auto& pc = env.app->playback();
+        QVERIFY(pc.play({ContextType::Movie, movie.id}, movie.file.id, StartMode::FromStart));
+        startAndLoad(env.backend);
+        env.backend->tick(580);
+        QVERIFY(!pc.canMarkSkips());
+        QVERIFY(!pc.markEndingStartHere());
+        QVERIFY(!pc.markIntroStartHere());
+    }
+
+    void aMarkedEndingIsNotSkippedTwiceWhenTheDurationIsRefinedAfterwards()
+    {
+        Env env;
+        Id showId = 0;
+        const auto eps = env.makeShow(QStringLiteral("Refined"), 1, &showId);
+        SeasonSkipMarks marks;
+        marks.endingFromEndMs = 30000;
+        QVERIFY(env.app->library().setSeasonSkipMarks(eps[0].seasonId, marks));
+        QVERIFY(startWith(env, showId, eps[0], {}));
+        env.backend->tick(575);
+        QCOMPARE(env.backend->seeks.size(), 1);
+
+        emit env.backend->durationChanged(600.4);  // the engine settles on a slightly different duration
+        env.backend->tick(575.5);                  // a stale position, inside the (moved) ending again
+        QCOMPARE(env.backend->seeks.size(), 1);
     }
 };
 

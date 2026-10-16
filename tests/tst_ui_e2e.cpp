@@ -24,6 +24,7 @@
 #include <QFrame>
 #include <QInputDialog>
 #include <QLabel>
+#include <QMenu>
 #include <QMouseEvent>
 #include <QPushButton>
 #include <QStackedWidget>
@@ -650,14 +651,12 @@ private slots:
             if (m.file.path.endsWith(QStringLiteral("chaptered_episode.mkv"), Qt::CaseInsensitive)) movie = m;
         QVERIFY(movie.id != kInvalidId);
 
-        // the two automatic options are off by default and write through when toggled
+        // the two automatic options are on by default and write through when toggled
         clickButton(s.find<QToolButton>("nav_settings"));
         auto* autoIntro = s.find<QCheckBox>("AutoSkipIntro");
         auto* autoEnding = s.find<QCheckBox>("AutoSkipEnding");
         QVERIFY(autoIntro && autoEnding);
-        QVERIFY(!autoIntro->isChecked() && !autoEnding->isChecked());
-        autoIntro->click();
-        autoEnding->click();
+        QVERIFY(autoIntro->isChecked() && autoEnding->isChecked());
         QVERIFY(s.app->settings().autoSkipIntro() && s.app->settings().autoSkipEnding());
         s.shot(QStringLiteral("22_settings_skip_options"));
         autoIntro->click();
@@ -695,6 +694,7 @@ private slots:
         QVERIFY(!skip->isVisible());
         s.closeLikeAUser();
     }
+
 };
 
 int main(int argc, char** argv)

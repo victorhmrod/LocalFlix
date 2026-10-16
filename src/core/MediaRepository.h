@@ -114,6 +114,11 @@ public:
     // Unfinished movies that were started, most recently watched first.
     QVector<Movie> startedMovies(int limit) const;
 
+    // --- opening/ending marks of a season ----------------------------------
+    SeasonSkipMarks seasonSkipMarks(Id seasonId) const;
+    // Replaces the marks; marks with nothing set remove the row.
+    void setSeasonSkipMarks(Id seasonId, const SeasonSkipMarks& marks);
+
     // --- settings ----------------------------------------------------------
     QMap<QString, QString> allSettings() const;
     void setSetting(const QString& key, const QString& value);

@@ -483,6 +483,50 @@ private slots:
         for (const Episode& e : app.library().episodes(showId)) QVERIFY(e.progress.completed);
     }
 
+    void realEngineSkipsTheEndingOfFilesWithoutChaptersFromTheSeasonMark()
+    {
+        QTemporaryDir dir;
+        auto backend = std::make_unique<MpvBackend>(headless());
+        MpvBackend* engine = backend.get();
+        ApplicationController app(QDir(dir.path()).filePath(QStringLiteral("data")), std::move(backend));
+        QVERIFY(app.initialize());
+        app.settings().setAutoPlayCountdownSeconds(0);
+        app.settings().setPlaybackSpeed(4.0);  // automatic skipping is on, as by default
+
+        const Id showId = app.library().createShow(QStringLiteral("Season mark"));
+        // neither file has chapters; by name the 6 s clip comes first, then the 40 s one
+        QCOMPARE(app.importer().importEpisodesSync(showId, kInvalidId, {videoPath(QStringLiteral("long_resume_test.mkv")), videoPath(QStringLiteral("downloaded_episode_04.mp4"))}).added, 2);
+        const auto eps = app.library().episodes(showId);
+        QVERIFY(eps[0].file.path.endsWith(QStringLiteral("downloaded_episode_04.mp4")));
+        QVERIFY(eps[1].file.path.endsWith(QStringLiteral("long_resume_test.mkv")));
+        SeasonSkipMarks marks;
+        marks.endingFromEndMs = 30000;  // longer than the 6 s clip, so it does not apply to it; 10 s - 40 s of the long one
+        QVERIFY(app.library().setSeasonSkipMarks(eps[0].seasonId, marks));
+
+        auto& pc = app.playback();
+        QStringList order;
+        QElapsedTimer sinceSkip;
+        qint64 skipToCompletedMs = -1;
+        connect(&pc, &PlaybackController::segmentSkipped, this, [&](lf::SkipSegment seg, bool automatic) {
+            order << QStringLiteral("skip-%1%2").arg(seg.noun(), automatic ? QStringLiteral("-auto") : QString());
+            sinceSkip.start();
+        });
+        connect(&pc, &PlaybackController::itemCompleted, this, [&](lf::QueueEntry) {
+            order << QStringLiteral("completed");
+            if (sinceSkip.isValid() && skipToCompletedMs < 0) skipToCompletedMs = sinceSkip.elapsed();
+        });
+        QSignalSpy finished(&pc, &PlaybackController::queueFinished);
+        Q_UNUSED(engine)
+
+        QVERIFY(pc.play(showContext(showId), eps[0].file.id, StartMode::FromStart));
+        QVERIFY2(waitFor([&] { return finished.count() >= 1; }, 60000), qPrintable(order.join(QLatin1Char(','))));
+        // the short clip played through (no skip), the long one was skipped from the mark and ended at once:
+        // at 4x its last 30 s would have taken 7.5 s more
+        QCOMPARE(order, QStringList({QStringLiteral("completed"), QStringLiteral("skip-ending-auto"), QStringLiteral("completed")}));
+        QVERIFY2(skipToCompletedMs >= 0 && skipToCompletedMs < 4000, qPrintable(QString::number(skipToCompletedMs)));
+        for (const Episode& e : app.library().episodes(showId)) QVERIFY(e.progress.completed);
+    }
+
     void realEngineSkippingTheEndingWhilePausedStillFinishesTheEpisode()
     {
         QTemporaryDir dir;
@@ -492,6 +536,8 @@ private slots:
         ApplicationController app(QDir(dir.path()).filePath(QStringLiteral("data")), std::make_unique<MpvBackend>(headless()));
         QVERIFY(app.initialize());
         app.settings().setAutoPlayCountdownSeconds(0);
+        app.settings().setAutoSkipIntro(false);  // the button is what is under test, not the automatic skip
+        app.settings().setAutoSkipEnding(false);
         const Id showId = app.library().createShow(QStringLiteral("Paused skip"));
         QCOMPARE(app.importer().importEpisodesSync(showId, kInvalidId, {chaptered}).added, 1);
         const Episode ep = app.library().episodes(showId).first();
