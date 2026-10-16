@@ -31,6 +31,8 @@ add_library(localflix_core STATIC
     SkipSegments.cpp
     SkipSegments.h
     SqlUtil.h
+    TrackChoice.cpp
+    TrackChoice.h
     Types.h
 )
 

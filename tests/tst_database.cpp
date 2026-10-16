@@ -158,6 +158,24 @@ private slots:
         after.run();
         QVERIFY(after.next());
         QCOMPARE(after.i32(0), 0);
+
+        // the audio/subtitle choice of a show: starts empty, defaults to "nothing chosen", goes with its show
+        Stmt prefs(db.database(), QStringLiteral("SELECT COUNT(*) FROM show_track_prefs"));
+        prefs.run();
+        QVERIFY(prefs.next());
+        QCOMPARE(prefs.i32(0), 0);
+        execSql(db.database(), QStringLiteral("INSERT INTO show_track_prefs(show_id, audio_mode, audio_lang) VALUES(1, 1, 'por')"));
+        Stmt row(db.database(), QStringLiteral("SELECT audio_mode, audio_lang, sub_mode FROM show_track_prefs WHERE show_id = 1"));
+        row.run();
+        QVERIFY(row.next());
+        QCOMPARE(row.i32(0), 1);
+        QCOMPARE(row.str(1), QStringLiteral("por"));
+        QCOMPARE(row.i32(2), -1);
+        execSql(db.database(), QStringLiteral("DELETE FROM shows WHERE id = 1"));
+        Stmt gone(db.database(), QStringLiteral("SELECT COUNT(*) FROM show_track_prefs"));
+        gone.run();
+        QVERIFY(gone.next());
+        QCOMPARE(gone.i32(0), 0);
     }
 
     void failedMigrationRollsBackAndReportsError()

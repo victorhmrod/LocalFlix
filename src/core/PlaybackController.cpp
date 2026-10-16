@@ -1,5 +1,7 @@
 #include "PlaybackController.h"
 
+#include "TrackChoice.h"
+
 #include <QDir>
 #include <QFileInfo>
 #include <QLoggingCategory>
@@ -142,10 +144,7 @@ void PlaybackController::onFileLoaded(quint64 token)
     setState(m_backend->isPaused() ? PlaybackState::Paused : PlaybackState::Playing);
     m_progress->begin(m_current.mediaFileId, m_trackingPosition, m_durationMs);
 
-    // Restore the audio/subtitle choice made for this file earlier.
-    const Progress saved = m_library->progress(m_current.mediaFileId);
-    if (saved.audioTrack != kTrackAuto) m_backend->setAudioTrack(saved.audioTrack);
-    if (saved.subtitleTrack != kTrackAuto) m_backend->setSubtitleTrack(saved.subtitleTrack);
+    restoreTrackChoices(m_library->progress(m_current.mediaFileId));
 
     emit nowPlaying(m_current, hasPrevious(), hasNext());
     emit positionChanged(m_positionMs, m_durationMs);
@@ -579,20 +578,90 @@ int selectedTrackId(const QVector<TrackInfo>& tracks, TrackType type)
         if (t.type == type && t.selected) return t.id;
     return kTrackOff;
 }
+
+const TrackInfo* trackById(const QVector<TrackInfo>& tracks, TrackType type, int id)
+{
+    for (const TrackInfo& t : tracks)
+        if (t.type == type && t.id == id) return &t;
+    return nullptr;
+}
 }  // namespace
+
+// Puts back the audio and subtitle choices when a file starts. For an episode the choice made for the show wins
+// (it is found again by language and title, since the tracks can come in another order in the next episode); a
+// preference of the show beats the engine's own pick and the global language settings. Where the show has none
+// for a kind, what was chosen for this very file (by track number, as before) is restored, and if that differs from
+// what the engine picked by itself it was a deliberate choice, so it becomes the show's. This applies the
+// preferences straight to the backend: loading a file never writes one.
+void PlaybackController::restoreTrackChoices(const Progress& saved)
+{
+    const QVector<TrackInfo> tracks = m_backend->tracks();
+    const bool episode = m_current.showId != kInvalidId;
+    const ShowTrackPrefs prefs = episode ? m_library->showTrackPrefs(m_current.showId) : ShowTrackPrefs{};
+
+    auto restore = [&](TrackType type, const TrackChoice& choice, int savedId) {
+        const auto apply = [&](int id) {
+            if (type == TrackType::Audio)
+                m_backend->setAudioTrack(id);
+            else
+                m_backend->setSubtitleTrack(id);
+        };
+        switch (choice.kind) {
+        case TrackChoice::Kind::Off:
+            apply(kTrackOff);
+            return;
+        case TrackChoice::Kind::Track: {
+            const int id = findTrackForChoice(tracks, type, choice);
+            const TrackInfo* track = id > 0 ? trackById(tracks, type, id) : nullptr;
+            if (track && !track->selected) apply(id);  // no match: the engine's choice stands
+            return;
+        }
+        case TrackChoice::Kind::Auto:
+            break;
+        }
+        if (savedId == kTrackAuto) return;
+        const int enginePick = selectedTrackId(tracks, type);
+        apply(savedId);
+        if (episode && savedId != enginePick) rememberForShow(type, savedId);
+    };
+    restore(TrackType::Audio, prefs.audio, saved.audioTrack);
+    restore(TrackType::Subtitle, prefs.subtitle, saved.subtitleTrack);
+}
+
+// The user chose a track (or "off") for the episode on screen: the show now keeps that choice for its other
+// episodes. Only the kind that was changed is recorded, and an external subtitle (specific to one file) is not.
+void PlaybackController::rememberForShow(TrackType type, int trackId)
+{
+    if (m_current.showId == kInvalidId) return;
+    TrackChoice choice;
+    if (trackId == kTrackOff) {
+        choice.kind = TrackChoice::Kind::Off;
+    } else {
+        const TrackInfo* track = trackById(m_backend->tracks(), type, trackId);
+        if (!track || track->external) return;
+        choice = choiceFromTrack(*track);
+        // a track with neither language nor title cannot be told apart in another file: forget the old choice instead
+        if (languageKey(choice.language).isEmpty() && choice.title.isEmpty()) choice = TrackChoice{};
+    }
+    m_library->saveShowTrackChoice(m_current.showId, type, choice);
+}
 
 void PlaybackController::selectAudioTrack(int trackId)
 {
     m_backend->setAudioTrack(trackId);
-    if (m_current.valid() && isActive())
+    if (m_current.valid() && isActive()) {
         m_library->saveTrackSelection(m_current.mediaFileId, trackId, selectedTrackId(m_backend->tracks(), TrackType::Subtitle));
+        rememberForShow(TrackType::Audio, trackId);
+    }
 }
 
 void PlaybackController::selectSubtitleTrack(int trackId)
 {
     m_backend->setSubtitleTrack(trackId);
-    if (m_current.valid() && isActive())
+    if (m_current.valid() && isActive()) {
         m_library->saveTrackSelection(m_current.mediaFileId, selectedTrackId(m_backend->tracks(), TrackType::Audio), trackId);
+        rememberForShow(TrackType::Subtitle, trackId);
+    }
 }
 
 bool PlaybackController::addExternalSubtitle(const QString& path)

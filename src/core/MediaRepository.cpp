@@ -758,6 +758,64 @@ QVector<Movie> MediaRepository::startedMovies(int limit) const
     return out;
 }
 
+// ------------------------------------------------------------------ audio/subtitle choice of a show
+
+namespace {
+int modeOf(TrackChoice::Kind kind)
+{
+    switch (kind) {
+    case TrackChoice::Kind::Auto: return -1;
+    case TrackChoice::Kind::Off: return 0;
+    case TrackChoice::Kind::Track: return 1;
+    }
+    return -1;
+}
+
+TrackChoice choiceOf(int mode, const QString& language, const QString& title)
+{
+    TrackChoice c;
+    c.kind = mode == 0 ? TrackChoice::Kind::Off : (mode == 1 ? TrackChoice::Kind::Track : TrackChoice::Kind::Auto);
+    if (c.kind == TrackChoice::Kind::Track) {
+        c.language = language;
+        c.title = title;
+    }
+    return c;
+}
+}  // namespace
+
+ShowTrackPrefs MediaRepository::showTrackPrefs(Id showId) const
+{
+    Stmt s(m_db, QStringLiteral("SELECT audio_mode, audio_lang, audio_title, sub_mode, sub_lang, sub_title FROM show_track_prefs WHERE show_id = ?"));
+    s.bind(showId).run();
+    ShowTrackPrefs prefs;
+    if (s.next()) {
+        prefs.audio = choiceOf(s.i32(0), s.str(1), s.str(2));
+        prefs.subtitle = choiceOf(s.i32(3), s.str(4), s.str(5));
+    }
+    return prefs;
+}
+
+void MediaRepository::setShowTrackChoice(Id showId, TrackType type, const TrackChoice& choice)
+{
+    const bool isTrack = choice.kind == TrackChoice::Kind::Track;
+    const QVariant mode = modeOf(choice.kind);
+    const QVariant language = isTrack ? choice.language : QString();
+    const QVariant title = isTrack ? choice.title : QString();
+    if (type == TrackType::Audio) {
+        execSql(m_db,
+                QStringLiteral("INSERT INTO show_track_prefs(show_id, audio_mode, audio_lang, audio_title) VALUES(?,?,?,?) "
+                               "ON CONFLICT(show_id) DO UPDATE SET audio_mode = excluded.audio_mode, "
+                               "audio_lang = excluded.audio_lang, audio_title = excluded.audio_title"),
+                {showId, mode, language, title});
+    } else {
+        execSql(m_db,
+                QStringLiteral("INSERT INTO show_track_prefs(show_id, sub_mode, sub_lang, sub_title) VALUES(?,?,?,?) "
+                               "ON CONFLICT(show_id) DO UPDATE SET sub_mode = excluded.sub_mode, "
+                               "sub_lang = excluded.sub_lang, sub_title = excluded.sub_title"),
+                {showId, mode, language, title});
+    }
+}
+
 // ------------------------------------------------------------------ season skip marks
 
 SeasonSkipMarks MediaRepository::seasonSkipMarks(Id seasonId) const

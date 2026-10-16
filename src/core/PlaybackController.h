@@ -154,6 +154,8 @@ private:
     void handleNaturalEnd();
     void startPendingAdvance();
     QueueEntry nextForAdvance() const;
+    void restoreTrackChoices(const Progress& saved);
+    void rememberForShow(TrackType type, int trackId);
     void seekTo(qint64 targetMs);
     void rebuildSegments();
     void clearSegments();

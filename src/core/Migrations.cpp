@@ -118,7 +118,7 @@ Migration v2()
 {
     Migration m;
     m.version = 2;
-    m.description = QStringLiteral("Opening/ending marks per season (for files without chapters)");
+    m.description = QStringLiteral("Opening/ending marks per season (for files without chapters) and the audio/subtitle choice per show");
     m.statements = {
         // -1 = not set. The ending is stored as an offset from the end of the file so one mark fits every
         // episode of the season, whatever its length.
@@ -128,6 +128,18 @@ CREATE TABLE season_skip_marks (
     intro_start_ms     INTEGER NOT NULL DEFAULT -1,
     intro_end_ms       INTEGER NOT NULL DEFAULT -1,
     ending_from_end_ms INTEGER NOT NULL DEFAULT -1
+))sql"),
+        // The audio/subtitle choice of a show, by what the track is (language, title) and not by its number:
+        // mode -1 = nothing chosen (the engine's pick stands), 0 = off, 1 = a track.
+        QStringLiteral(R"sql(
+CREATE TABLE show_track_prefs (
+    show_id     INTEGER PRIMARY KEY REFERENCES shows(id) ON DELETE CASCADE,
+    audio_mode  INTEGER NOT NULL DEFAULT -1,
+    audio_lang  TEXT    NOT NULL DEFAULT '',
+    audio_title TEXT    NOT NULL DEFAULT '',
+    sub_mode    INTEGER NOT NULL DEFAULT -1,
+    sub_lang    TEXT    NOT NULL DEFAULT '',
+    sub_title   TEXT    NOT NULL DEFAULT ''
 ))sql"),
     };
     return m;

@@ -49,6 +49,26 @@ QString writeChapteredClip(const QString& dir)
     return lf::test::writeChapteredClip(videoPath(QStringLiteral("long_resume_test.mkv")), dir);
 }
 
+// A 6 s "episode" with two audio tracks, made as an mpv EDL file out of two generated clips: the audio tracks
+// are `first` and `second` ("eng" or "por", titled "EN" / "BR") in that order. Written next to the others in `dir`
+// and named like a video so it can be imported; mpv recognises it by its content.
+QString writeTwoAudioEpisode(const QString& dir, const QString& name, const QString& first, const QString& second)
+{
+    const QString out = QDir(dir).filePath(name);
+    QFile f(out);
+    if (!f.open(QIODevice::WriteOnly)) return {};
+    f.write("# mpv EDL v0\n");
+    int n = 0;
+    for (const QString& lang : {first, second}) {
+        const bool english = lang == QLatin1String("eng");
+        const QByteArray clip = QDir::fromNativeSeparators(videoPath(english ? QStringLiteral("video_27.mkv") : QStringLiteral("anime_final.webm"))).toUtf8();
+        if (n++ > 0) f.write("!new_stream\n");
+        f.write("!track_meta,lang=" + lang.toUtf8() + ",title=" + (english ? "EN" : "BR") + "\n");
+        f.write("%" + QByteArray::number(clip.size()) + "%" + clip + ",0,6\n");
+    }
+    return LibraryManager::normalizePath(out);
+}
+
 }  // namespace
 
 class TstMpvBackend : public QObject {
@@ -331,6 +351,22 @@ private slots:
         QVERIFY(changed.last().at(0).value<QVector<ChapterInfo>>().isEmpty());
     }
 
+    void tracksAreKnownWhenTheFileIsLoaded()
+    {
+        // the controller puts back the audio/subtitle choices from the fileLoaded signal, so the list must be there by then
+        MpvBackend b(headless());
+        QSignalSpy loaded(&b, &IPlaybackBackend::fileLoaded);
+        int audioAtLoad = -1;
+        connect(&b, &IPlaybackBackend::fileLoaded, &b, [&] {
+            audioAtLoad = 0;
+            for (const TrackInfo& t : b.tracks())
+                if (t.type == TrackType::Audio) ++audioAtLoad;
+        });
+        b.loadFile(videoPath(QStringLiteral("downloaded_episode_04.mp4")), 0);
+        QVERIFY(waitFor([&] { return loaded.count() >= 1; }, 15000));
+        QVERIFY2(audioAtLoad >= 1, "no audio track listed yet when fileLoaded was emitted");
+    }
+
     void aFileWithoutChaptersReportsNone()
     {
         MpvBackend b(headless());
@@ -525,6 +561,98 @@ private slots:
         QCOMPARE(order, QStringList({QStringLiteral("completed"), QStringLiteral("skip-ending-auto"), QStringLiteral("completed")}));
         QVERIFY2(skipToCompletedMs >= 0 && skipToCompletedMs < 4000, qPrintable(QString::number(skipToCompletedMs)));
         for (const Episode& e : app.library().episodes(showId)) QVERIFY(e.progress.completed);
+    }
+
+    void realEngineKeepsTheChosenAudioLanguageForTheNextEpisodes()
+    {
+        // three episodes with an English and a Portuguese audio track; the second lists them the other way round
+        QTemporaryDir dir;
+        const QStringList files = {writeTwoAudioEpisode(dir.path(), QStringLiteral("ep01.mkv"), QStringLiteral("eng"), QStringLiteral("por")),
+                                   writeTwoAudioEpisode(dir.path(), QStringLiteral("ep02.mkv"), QStringLiteral("por"), QStringLiteral("eng")),
+                                   writeTwoAudioEpisode(dir.path(), QStringLiteral("ep03.mkv"), QStringLiteral("eng"), QStringLiteral("por"))};
+        auto backend = std::make_unique<MpvBackend>(headless());
+        MpvBackend* engine = backend.get();
+        ApplicationController app(QDir(dir.path()).filePath(QStringLiteral("data")), std::move(backend));
+        QVERIFY(app.initialize());
+        app.settings().setAutoPlayCountdownSeconds(0);
+        app.settings().setPlaybackSpeed(4.0);
+
+        const Id showId = app.library().createShow(QStringLiteral("Dubbed"));
+        QCOMPARE(app.importer().importEpisodesSync(showId, kInvalidId, files).added, 3);
+        const auto eps = app.library().episodes(showId);
+        auto audioLanguage = [&] {
+            for (const TrackInfo& t : engine->tracks())
+                if (t.type == TrackType::Audio && t.selected) return t.language;
+            return QString();
+        };
+        auto settled = [&](const QString& language) {  // the engine takes a moment to report a switch; then it must stay
+            if (!waitFor([&] { return audioLanguage() == language; }, 8000)) return false;
+            QTest::qWait(600);
+            return audioLanguage() == language;
+        };
+
+        auto& pc = app.playback();
+        QSignalSpy now(&pc, &PlaybackController::nowPlaying);
+        QVERIFY(pc.play(showContext(showId), eps[0].file.id, StartMode::FromStart));
+        QVERIFY(waitFor([&] { return now.count() >= 1; }, 15000));
+        QVERIFY2(settled(QStringLiteral("eng")), "baseline: the first episode starts in English");
+        int portuguese = 0;
+        for (const TrackInfo& t : engine->tracks())
+            if (t.type == TrackType::Audio && t.language == QLatin1String("por")) portuguese = t.id;
+        QCOMPARE(portuguese, 2);
+        pc.selectAudioTrack(portuguese);  // the user switches the series to Portuguese
+        QVERIFY(settled(QStringLiteral("por")));
+
+        // next episode, picked by the user: Portuguese is its first audio track
+        pc.next();
+        QVERIFY(waitFor([&] { return now.count() >= 2; }, 15000));
+        QVERIFY2(settled(QStringLiteral("por")), qPrintable(QStringLiteral("episode 2 plays in '%1'").arg(audioLanguage())));
+
+        // and when an episode ends by itself and the next one starts after the countdown
+        QVERIFY2(waitFor([&] { return now.count() >= 3; }, 30000), "the third episode did not start by itself");
+        QVERIFY2(settled(QStringLiteral("por")), qPrintable(QStringLiteral("episode 3 plays in '%1'").arg(audioLanguage())));
+    }
+
+    void realEngineKeepsTheSubtitlesOffForTheNextEpisodeOfTheShow()
+    {
+        // two copies of the generated clip with its sidecar subtitle, so the show has two episodes that start with one
+        QTemporaryDir dir;
+        const QStringList names = {QStringLiteral("ep01"), QStringLiteral("ep02")};
+        QStringList files;
+        for (const QString& n : names) {
+            QVERIFY(QFile::copy(videoPath(QStringLiteral("downloaded_episode_04.mp4")), QDir(dir.path()).filePath(n + QStringLiteral(".mp4"))));
+            QVERIFY(QFile::copy(videoPath(QStringLiteral("downloaded_episode_04.srt")), QDir(dir.path()).filePath(n + QStringLiteral(".srt"))));
+            files << LibraryManager::normalizePath(QDir(dir.path()).filePath(n + QStringLiteral(".mp4")));
+        }
+        auto backend = std::make_unique<MpvBackend>(headless());
+        MpvBackend* engine = backend.get();
+        ApplicationController app(QDir(dir.path()).filePath(QStringLiteral("data")), std::move(backend));
+        QVERIFY(app.initialize());
+        app.settings().setAutoPlayNext(false);  // the test moves on by itself
+
+        const Id showId = app.library().createShow(QStringLiteral("Subtitles off"));
+        QCOMPARE(app.importer().importEpisodesSync(showId, kInvalidId, files).added, 2);
+        const auto eps = app.library().episodes(showId);
+        auto subtitle = [&](bool selected) {
+            for (const TrackInfo& t : engine->tracks())
+                if (t.type == TrackType::Subtitle && t.selected == selected) return true;
+            return false;
+        };
+
+        auto& pc = app.playback();
+        QSignalSpy now(&pc, &PlaybackController::nowPlaying);
+        QVERIFY(pc.play(showContext(showId), eps[0].file.id, StartMode::FromStart));
+        QVERIFY(waitFor([&] { return now.count() >= 1; }, 15000));
+        QVERIFY2(waitFor([&] { return subtitle(true); }, 8000), "baseline: the sidecar subtitle is on by default");
+
+        pc.selectSubtitleTrack(kTrackOff);  // the user turns the subtitles off in the first episode
+        QVERIFY(waitFor([&] { return !subtitle(true); }, 8000));
+
+        pc.next();
+        QVERIFY(waitFor([&] { return now.count() >= 2; }, 15000));
+        QVERIFY(waitFor([&] { return subtitle(false); }, 8000));  // the second episode has its subtitle...
+        QTest::qWait(700);                                         // (give the engine time to settle)
+        QVERIFY2(!subtitle(true), "the second episode started with subtitles although they were turned off for the show");  // ...switched off
     }
 
     void realEngineSkippingTheEndingWhilePausedStillFinishesTheEpisode()

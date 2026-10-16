@@ -126,6 +126,11 @@ public:
     bool resetProgress(const QVector<Id>& mediaFileIds);
     bool resetShowProgress(Id showId);
 
+    // ---- audio/subtitle choice of a show ----------------------------------
+    ShowTrackPrefs showTrackPrefs(Id showId);
+    // Remembers the choice for one kind (audio or subtitle) of a show; the other kind is not touched.
+    void saveShowTrackChoice(Id showId, TrackType type, const TrackChoice& choice);
+
     // ---- opening/ending marks of a season ---------------------------------
     SeasonSkipMarks seasonSkipMarks(Id seasonId);
     bool setSeasonSkipMarks(Id seasonId, const SeasonSkipMarks& marks);

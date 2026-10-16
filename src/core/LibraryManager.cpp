@@ -659,6 +659,21 @@ void LibraryManager::saveTrackSelection(Id mediaFileId, int audioTrack, int subt
     });
 }
 
+ShowTrackPrefs LibraryManager::showTrackPrefs(Id showId)
+{
+    if (showId == kInvalidId) return {};
+    return guarded<ShowTrackPrefs>([&] { return m_repo.showTrackPrefs(showId); });
+}
+
+void LibraryManager::saveShowTrackChoice(Id showId, TrackType type, const TrackChoice& choice)
+{
+    if (showId == kInvalidId || type == TrackType::Video) return;
+    guarded<bool>([&] {
+        m_repo.setShowTrackChoice(showId, type, choice);
+        return true;
+    });
+}
+
 SeasonSkipMarks LibraryManager::seasonSkipMarks(Id seasonId)
 {
     if (seasonId == kInvalidId) return {};

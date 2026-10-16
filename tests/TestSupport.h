@@ -64,6 +64,12 @@ public:
     quint64 lastToken() const { return m_nextToken; }
     const Load& lastLoad() const { return loads.last(); }
     void setDuration(double seconds) { m_duration = seconds; }
+    // The tracks the engine reports for the file(s) that follow; tracksChanged() is emitted like the real one does.
+    void setTracks(const QVector<TrackInfo>& tracks)
+    {
+        m_tracks = tracks;
+        emit tracksChanged(m_tracks);
+    }
     // What the engine reports for the next file(s); chaptersChanged() is emitted like the real one does.
     void setChapters(const QVector<ChapterInfo>& chapters)
     {

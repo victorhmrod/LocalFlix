@@ -114,6 +114,11 @@ public:
     // Unfinished movies that were started, most recently watched first.
     QVector<Movie> startedMovies(int limit) const;
 
+    // --- audio/subtitle choice of a show -----------------------------------
+    ShowTrackPrefs showTrackPrefs(Id showId) const;
+    // Replaces the choice of one kind (audio or subtitle) and leaves the other alone.
+    void setShowTrackChoice(Id showId, TrackType type, const TrackChoice& choice);
+
     // --- opening/ending marks of a season ----------------------------------
     SeasonSkipMarks seasonSkipMarks(Id seasonId) const;
     // Replaces the marks; marks with nothing set remove the row.

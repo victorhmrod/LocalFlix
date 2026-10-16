@@ -56,6 +56,22 @@ struct Progress {
     bool started() const { return !completed && positionMs >= kMinResumeMs; }
 };
 
+enum class TrackType { Video, Audio, Subtitle };
+
+// The audio or subtitle choice made for a show, remembered by what the track is (its language and title) rather
+// than by its number, so it can be found again in the next episode whatever order its tracks come in.
+struct TrackChoice {
+    enum class Kind { Auto, Off, Track };  // Auto: nothing chosen yet, the engine's own pick stands
+    Kind kind = Kind::Auto;
+    QString language;  // as the container says it ("por", "pt", "eng"…)
+    QString title;
+};
+
+struct ShowTrackPrefs {
+    TrackChoice audio;
+    TrackChoice subtitle;
+};
+
 // Where the opening and the ending are in the episodes of one season, for the
 // files whose chapters do not say. The opening is an absolute stretch of the
 // file; the ending is "the last N ms", so it fits episodes of different lengths.

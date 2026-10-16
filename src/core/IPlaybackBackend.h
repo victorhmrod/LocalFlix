@@ -1,5 +1,7 @@
 #pragma once
 
+#include "Types.h"
+
 #include <QLocale>
 #include <QMetaType>
 #include <QObject>
@@ -24,8 +26,6 @@ struct EndFileInfo {
     int errorCode = 0;
     QString errorText;
 };
-
-enum class TrackType { Video, Audio, Subtitle };
 
 struct TrackInfo {
     int id = 0;

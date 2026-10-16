@@ -381,10 +381,11 @@ void MpvBackend::handleEvent(const mpv_event* ev)
         // waiting for the property-change notification.
         double d = 0.0;
         if (mpv_get_property(m_handle, "duration", MPV_FORMAT_DOUBLE, &d) >= 0 && d > 0) m_duration = d;
-        // Before the signal, so chapters() is already right when the controller reacts to it.
+        // Before the signal, so chapters() and tracks() are already right when the controller reacts to it
+        // (it puts back the audio/subtitle choices and finds the openings and endings).
         refreshChapters();
-        emit fileLoaded(m_activeToken);
         refreshTracks();
+        emit fileLoaded(m_activeToken);
         break;
     }
     case MPV_EVENT_END_FILE: {
