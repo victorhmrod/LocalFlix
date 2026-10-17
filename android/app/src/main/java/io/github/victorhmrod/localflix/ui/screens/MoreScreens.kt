@@ -366,6 +366,15 @@ fun SettingsScreen() {
         }
         SwitchRow("Resume where I stopped, without asking", s.resumeAutomatically, "When off, you choose between resuming and starting over.") { changed { s.setResumeAutomatically(it) } }
         SwitchRow("Skip episodes I have completed", s.skipCompleted, "Only when moving on automatically; the Next button always follows your order.") { changed { s.setSkipCompleted(it) } }
+        SwitchRow("Skip openings automatically", s.autoSkipIntro) { changed { s.setAutoSkipIntro(it) } }
+        SwitchRow("Skip endings automatically", s.autoSkipEnding) { changed { s.setAutoSkipEnding(it) } }
+        Text(
+            "Openings and endings are found through the chapters stored in the video file (titled Opening, OP, Intro, Ending, ED, Credits…). " +
+                "While the player is inside one, a Skip button appears; these options press it for you. " +
+                "Skipping an ending that lasts until the end of the file finishes the episode, so the next one starts as usual. " +
+                "Files without such chapters have nothing to skip.",
+            Modifier.padding(horizontal = 16.dp, vertical = 4.dp), style = MaterialTheme.typography.bodySmall, color = LocalFlixColors.TextMuted,
+        )
         ChoiceRow("Default playback speed", listOf(0.5, 0.75, 1.0, 1.25, 1.5, 2.0), s.playbackSpeed, { "${it}x".replace(".0x", "x") }) { changed { s.setPlaybackSpeed(it) } }
         ChoiceRow(
             "Screen while playing", PlayerOrientation.entries, s.playerOrientation,

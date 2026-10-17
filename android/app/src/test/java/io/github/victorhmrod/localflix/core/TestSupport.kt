@@ -120,6 +120,8 @@ class FakeBackend : PlaybackBackend {
     override val isMuted get() = muted
     override val speed get() = spd
     override val tracks get() = trackList
+    override var chapters: List<ChapterInfo> = emptyList()
+        private set
 
     // ---- test controls -----------------------------------------------------
     val lastToken get() = nextToken
@@ -127,6 +129,12 @@ class FakeBackend : PlaybackBackend {
 
     fun setDuration(ms: Long) {
         duration = ms
+    }
+
+    /** What the engine reports for the next file(s); the listener hears about it like it does from the real one. */
+    fun setChapters(list: List<ChapterInfo>) {
+        chapters = list
+        listener?.onChaptersChanged(list)
     }
 
     fun finishLoading(token: Long = 0) {

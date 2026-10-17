@@ -60,5 +60,7 @@ interface PlaybackSettings {
     val autoPlayCountdownSeconds: Int
     val resumeAutomatically: Boolean
     val skipCompleted: Boolean
+    val autoSkipIntro: Boolean
+    val autoSkipEnding: Boolean
     val playbackSpeed: Double
 }

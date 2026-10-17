@@ -54,6 +54,12 @@ sealed interface PlaybackEvent {
 
     data class Stopped(val entry: QueueEntry) : PlaybackEvent
 
+    /** The playhead entered or left an opening/ending (an invalid [segment] = left): the Skip button follows it. */
+    data class SkipSegmentChanged(val segment: SkipSegment) : PlaybackEvent
+
+    /** An opening/ending was skipped, by the user or automatically. */
+    data class SegmentSkipped(val segment: SkipSegment, val automatic: Boolean) : PlaybackEvent
+
     data class Failed(val entry: QueueEntry, val failure: PlaybackFailure) : PlaybackEvent
 
     /** "Resume playback automatically" is off and the item has a saved position: the UI must ask. */
@@ -90,6 +96,14 @@ class PlaybackController(
     var durationMs = 0L
         private set
 
+    /** The opening/ending the playhead is in right now (invalid when none). */
+    var activeSegment = SkipSegment()
+        private set
+
+    /** Every opening/ending found in the current file's chapters. */
+    var skipSegments: List<SkipSegment> = emptyList()
+        private set
+
     private var token = 0L // token of the load we currently care about (0 = none)
     private var trackingPosition = true
     private var advanceTimer: Cancelable? = null
@@ -97,6 +111,12 @@ class PlaybackController(
     private var advanceDelayMs = 0L
     private var pendingNext = QueueEntry()
     private var shutDown = false
+
+    // Openings/endings of the current file, from its chapters. A segment whose start is in `handled` is never
+    // skipped automatically again: it was skipped already, or the user seeked into it on purpose. Both reset
+    // with every load.
+    private var chapters: List<ChapterInfo> = emptyList()
+    private val handled = HashSet<Long>()
 
     init {
         backend.listener = this
@@ -191,6 +211,7 @@ class PlaybackController(
     private fun finishActiveItem(reason: FlushReason) {
         progress.end(reason)
         token = 0
+        clearSegments()
     }
 
     // ------------------------------------------------------------------ backend events
@@ -210,6 +231,12 @@ class PlaybackController(
 
         emit(PlaybackEvent.NowPlaying(currentEntry, hasPrevious, hasNext))
         emit(PlaybackEvent.PositionChanged(positionMs, durationMs))
+
+        // Chapters are known by now. Starting (or resuming) inside an opening may skip it right away, so this
+        // comes after the UI knows what is playing.
+        chapters = backend.chapters
+        rebuildSegments()
+        updateActiveSegment()
     }
 
     override fun onEndFile(info: EndFileInfo) {
@@ -217,6 +244,7 @@ class PlaybackController(
         // it must never complete or advance anything.
         if (info.token == 0L || info.token != token) return
         token = 0
+        clearSegments()
         val neverStarted = state == PlaybackState.LOADING
 
         when (info.reason) {
@@ -303,6 +331,7 @@ class PlaybackController(
         this.positionMs = positionMs
         progress.update(positionMs, durationMs)
         emit(PlaybackEvent.PositionChanged(positionMs, durationMs))
+        updateActiveSegment()
     }
 
     override fun onDurationChanged(durationMs: Long) {
@@ -311,6 +340,18 @@ class PlaybackController(
         this.durationMs = durationMs
         progress.update(positionMs, durationMs)
         emit(PlaybackEvent.PositionChanged(positionMs, durationMs))
+        // the end of a last chapter is the duration
+        rebuildSegments()
+        updateActiveSegment()
+    }
+
+    override fun onChaptersChanged(chapters: List<ChapterInfo>) {
+        // While loading, onFileLoaded() reads them from the backend; at any other time they belong to a file that
+        // is no longer ours.
+        if (state != PlaybackState.PLAYING && state != PlaybackState.PAUSED) return
+        this.chapters = chapters
+        rebuildSegments()
+        updateActiveSegment()
     }
 
     override fun onPausedChanged(paused: Boolean) {
@@ -405,20 +446,88 @@ class PlaybackController(
         if (state != PlaybackState.PLAYING && state != PlaybackState.PAUSED) return
         var target = maxOf(0L, positionMs)
         if (durationMs > 0) target = minOf(target, durationMs)
-        this.positionMs = target
-        progress.update(target, durationMs) // so an immediate quit saves the new spot
-        backend.seekToMs(target)
-        emit(PlaybackEvent.PositionChanged(target, durationMs))
+        markSegmentsHandledAt(target) // the user went there on purpose: no automatic skip out of it
+        seekTo(target)
+        updateActiveSegment()
+    }
+
+    private fun seekTo(targetMs: Long) {
+        positionMs = targetMs
+        progress.update(targetMs, durationMs) // so an immediate quit saves the new spot
+        backend.seekToMs(targetMs)
+        emit(PlaybackEvent.PositionChanged(targetMs, durationMs))
     }
 
     fun seekByMs(deltaMs: Long) {
         if (state != PlaybackState.PLAYING && state != PlaybackState.PAUSED) return
         var target = maxOf(0L, positionMs + deltaMs)
         if (durationMs > 0) target = minOf(target, durationMs)
+        markSegmentsHandledAt(target)
         this.positionMs = target
         progress.update(target, durationMs)
         backend.seekByMs(deltaMs)
         emit(PlaybackEvent.PositionChanged(target, durationMs))
+        updateActiveSegment()
+    }
+
+    // ------------------------------------------------------------------ opening / ending
+
+    private fun autoSkipEnabled(kind: SegmentKind) = if (kind == SegmentKind.INTRO) settings.autoSkipIntro else settings.autoSkipEnding
+
+    private fun clearSegments() {
+        chapters = emptyList()
+        skipSegments = emptyList()
+        handled.clear()
+        if (activeSegment.valid()) {
+            activeSegment = SkipSegment()
+            emit(PlaybackEvent.SkipSegmentChanged(activeSegment))
+        }
+    }
+
+    private fun rebuildSegments() {
+        skipSegments = detectSkipSegments(chapters, durationMs)
+    }
+
+    private fun markSegmentsHandledAt(positionMs: Long) {
+        for (s in skipSegments) if (s.contains(positionMs)) handled += s.startMs
+    }
+
+    /**
+     * Tracks which opening/ending the playhead is in (the Skip button follows it) and, if the setting asks for it,
+     * skips it. An automatic skip happens at most once per segment and only while playing, never while paused,
+     * loading or counting down; seeking back into a segment that was skipped leaves it alone.
+     */
+    private fun updateActiveSegment() {
+        val inside = if (state == PlaybackState.PLAYING || state == PlaybackState.PAUSED) skipSegments.firstOrNull { it.contains(positionMs) } else null
+        val now = inside ?: SkipSegment()
+        if (now != activeSegment) {
+            activeSegment = now
+            emit(PlaybackEvent.SkipSegmentChanged(now))
+        }
+        if (inside != null && state == PlaybackState.PLAYING && autoSkipEnabled(inside.kind) && inside.startMs !in handled) {
+            skipSegment(inside, automatic = true)
+        }
+    }
+
+    /** Skips the opening/ending the playhead is in (the "Skip" button); does nothing outside one. */
+    fun skipActiveSegment() {
+        if (activeSegment.valid()) skipSegment(activeSegment, automatic = false)
+    }
+
+    private fun skipSegment(segment: SkipSegment, automatic: Boolean) {
+        if (state != PlaybackState.PLAYING && state != PlaybackState.PAUSED) return
+        handled += segment.startMs
+        // For an ending that runs to the end of the file this seeks to the very end: the engine then reports a
+        // natural end-of-file, which completes the item and advances exactly as if it had been watched. Nothing
+        // here completes anything.
+        var target = segment.endMs
+        if (durationMs > 0) target = minOf(target, durationMs)
+        // A paused engine may park on the last frame without ever reporting the end of the file (libmpv does on
+        // desktop), so the ending would not finish. Resume first.
+        if (segment.toEnd && state == PlaybackState.PAUSED) backend.setPaused(false)
+        seekTo(target)
+        emit(PlaybackEvent.SegmentSkipped(segment, automatic))
+        updateActiveSegment()
     }
 
     /** Flushes progress and stops the backend; safe to call more than once. */

@@ -6,6 +6,7 @@ import androidx.compose.ui.test.hasSetTextAction
 import androidx.compose.ui.test.junit4.v2.createComposeRule
 import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.performClick
+import androidx.compose.ui.test.performScrollTo
 import androidx.compose.ui.test.performTextInput
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import io.github.victorhmrod.localflix.app.AppContainer
@@ -15,6 +16,9 @@ import io.github.victorhmrod.localflix.data.LocalFlixDatabase
 import io.github.victorhmrod.localflix.ui.LocalFlixRoot
 import io.github.victorhmrod.localflix.ui.theme.LocalFlixTheme
 import org.junit.After
+import org.junit.Assert.assertFalse
+import org.junit.Assert.assertTrue
+import org.junit.Assume.assumeTrue
 import org.junit.Rule
 import org.junit.Test
 import org.junit.runner.RunWith
@@ -79,6 +83,45 @@ class UiSmokeTest {
         rule.onNodeWithText("Season 1").assertIsDisplayed()
         rule.onNodeWithText("ep1").assertIsDisplayed()
         rule.onNodeWithText("Continue", substring = true).assertIsDisplayed() // resume button names the place to continue
+    }
+
+    @Test
+    fun theSkipOptionsAreInTheSettingsAndStartOff() {
+        start()
+        val settings = container!!.settings
+        assertFalse(settings.autoSkipIntro)
+        assertFalse(settings.autoSkipEnding)
+        rule.onNodeWithText("Settings").performClick()
+        rule.onNodeWithText("Skip openings automatically").performScrollTo().assertIsDisplayed()
+        rule.onNodeWithText("Skip endings automatically").performScrollTo().assertIsDisplayed()
+
+        rule.onNodeWithText("Skip openings automatically").performClick()
+        rule.runOnIdle {
+            assertTrue(settings.autoSkipIntro)
+            assertFalse(settings.autoSkipEnding) // each option has its own switch
+        }
+        rule.onNodeWithText("Skip endings automatically").performClick()
+        rule.runOnIdle { assertTrue(settings.autoSkipEnding) }
+    }
+
+    @Test
+    fun thePlayerOffersSkipIntroInsideTheOpeningAndSkipEndingInsideTheEnding() {
+        assumeTrue("missing clip (run android/scripts/make_chaptered_clips.py)", testVideoAvailable("chaptered_episode.mkv"))
+        val clip = copyTestVideoAs("chaptered_episode.mkv", "ep1.mkv", File(targetContext.cacheDir, "ui-skip"))
+        start { c ->
+            val showId = c.library.createShow("Skip UI")
+            c.library.importEpisodes(showId, 0, ImportPlanner.planEpisodes(listOf(fileScan(clip))))
+        }
+        rule.onNodeWithText("TV shows").performClick()
+        rule.onNodeWithText("Skip UI").performClick()
+        rule.onNodeWithText("ep1").performClick() // plays it: the player screen opens
+
+        rule.waitUntil(20_000) { rule.onAllNodesWithTextCompat("Skip Intro") }
+        rule.onNodeWithText("Skip Intro").assertIsDisplayed().performClick()
+        rule.waitUntil(8_000) { onMainResult { container!!.backend.positionMs } >= 4_500 }
+        rule.waitUntil(5_000) { !rule.onAllNodesWithTextCompat("Skip Intro") }
+        rule.waitUntil(20_000) { rule.onAllNodesWithTextCompat("Skip Ending") }
+        rule.onNodeWithText("Skip Ending").assertIsDisplayed()
     }
 }
 

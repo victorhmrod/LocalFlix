@@ -8,6 +8,8 @@ import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
 import androidx.compose.foundation.background
+import androidx.compose.foundation.border
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -200,6 +202,17 @@ fun PlayerScreen(onClose: () -> Unit) {
             )
         }
 
+        // "Skip Intro" / "Skip Ending" follows the opening or ending the playhead is in. It sits above the controls
+        // so it stays reachable (just above the seek bar while they are up, near the edge when they fade).
+        val segment = ui.activeSegment
+        if (segment.valid()) {
+            SkipSegmentButton(
+                segment.label,
+                { pc.skipActiveSegment(); if (controlsVisible) poke() },
+                Modifier.align(Alignment.BottomEnd).navigationBarsPadding().padding(end = 24.dp, bottom = if (controlsVisible) 120.dp else 32.dp),
+            )
+        }
+
         toast?.let {
             Text(
                 it,
@@ -245,6 +258,19 @@ fun PlayerScreen(onClose: () -> Unit) {
                 SecondaryButton("Close", ::close, Modifier.padding(top = 8.dp))
             }
         }
+    }
+}
+
+@Composable
+private fun SkipSegmentButton(label: String, onClick: () -> Unit, modifier: Modifier = Modifier) {
+    Row(
+        modifier.clip(RoundedCornerShape(8.dp)).background(Color(0xD10F1115)).border(1.dp, Color.White.copy(alpha = 0.7f), RoundedCornerShape(8.dp))
+            .clickable(onClick = onClick).padding(horizontal = 18.dp, vertical = 12.dp),
+        horizontalArrangement = Arrangement.spacedBy(8.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        Text(label, color = Color.White, fontWeight = FontWeight.SemiBold)
+        AppIcon(AppIcons.SkipNext, null, tint = Color.White, size = 20.dp)
     }
 }
 

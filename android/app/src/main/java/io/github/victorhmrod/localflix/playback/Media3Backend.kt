@@ -4,6 +4,7 @@ import android.content.Context
 import android.net.Uri
 import android.os.Handler
 import android.os.Looper
+import androidx.annotation.OptIn
 import androidx.media3.common.AudioAttributes
 import androidx.media3.common.C
 import androidx.media3.common.MediaItem
@@ -12,14 +13,18 @@ import androidx.media3.common.PlaybackException
 import androidx.media3.common.Player
 import androidx.media3.common.Tracks
 import androidx.media3.common.TrackSelectionOverride
+import androidx.media3.common.util.UnstableApi
 import androidx.media3.exoplayer.DefaultRenderersFactory
 import androidx.media3.exoplayer.ExoPlayer
+import androidx.media3.extractor.metadata.Chapter
 import io.github.victorhmrod.localflix.core.BackendListener
+import io.github.victorhmrod.localflix.core.ChapterInfo
 import io.github.victorhmrod.localflix.core.EndFileInfo
 import io.github.victorhmrod.localflix.core.EndReason
 import io.github.victorhmrod.localflix.core.PlaybackBackend
 import io.github.victorhmrod.localflix.core.TrackInfo
 import io.github.victorhmrod.localflix.core.TrackType
+import io.github.victorhmrod.localflix.core.normalizeChapters
 
 /**
  * The real engine: Media3/ExoPlayer decoding straight from the content URI the user granted. Every playback gets a
@@ -43,6 +48,7 @@ class Media3Backend(context: Context) : PlaybackBackend {
     private var loaded = false // fileLoaded already reported for activeToken
     private var currentUri: String = ""
     private var lastDuration = 0L
+    private var chapterList: List<ChapterInfo> = emptyList()
 
     private val ticker = object : Runnable {
         override fun run() {
@@ -59,6 +65,7 @@ class Media3Backend(context: Context) : PlaybackBackend {
                     reportDuration()
                     if (!loaded) {
                         loaded = true
+                        refreshChapters(player.currentTracks) // known before the listener hears the file is open
                         listener?.onFileLoaded(activeToken)
                         listener?.onTracksChanged(buildTracks(player.currentTracks))
                     }
@@ -77,7 +84,9 @@ class Media3Backend(context: Context) : PlaybackBackend {
         }
 
         override fun onTracksChanged(tracks: Tracks) {
-            if (activeToken != 0L && loaded) listener?.onTracksChanged(buildTracks(tracks))
+            if (activeToken == 0L || !loaded) return
+            listener?.onTracksChanged(buildTracks(tracks))
+            if (refreshChapters(tracks)) listener?.onChaptersChanged(chapterList)
         }
 
         override fun onPlayerError(error: PlaybackException) {
@@ -95,6 +104,7 @@ class Media3Backend(context: Context) : PlaybackBackend {
         val t = activeToken
         activeToken = 0
         loaded = false
+        chapterList = emptyList()
         listener?.onEndFile(EndFileInfo(t, reason, text))
     }
 
@@ -110,6 +120,7 @@ class Media3Backend(context: Context) : PlaybackBackend {
         activeToken = ++nextToken
         loaded = false
         lastDuration = 0
+        chapterList = emptyList()
         currentUri = uri
         player.setMediaItem(MediaItem.fromUri(Uri.parse(uri)), startMs.coerceAtLeast(0))
         player.prepare()
@@ -120,6 +131,7 @@ class Media3Backend(context: Context) : PlaybackBackend {
     override fun stop() {
         activeToken = 0 // whatever the engine still reports for the old load is dropped
         loaded = false
+        chapterList = emptyList()
         player.stop()
         player.clearMediaItems()
     }
@@ -237,6 +249,29 @@ class Media3Backend(context: Context) : PlaybackBackend {
     override val isMuted: Boolean get() = player.volume == 0f
     override val speed: Double get() = player.playbackParameters.speed.toDouble()
     override val tracks: List<TrackInfo> get() = buildTracks(player.currentTracks)
+    override val chapters: List<ChapterInfo> get() = chapterList
+
+    /**
+     * Chapters are carried by the container's tracks: Media3 hangs a Chapter entry (Matroska/WebM chapters, MP4
+     * chpl) on the format of every track, so the same chapter shows up once per track. A track list without any
+     * chapters never erases the known ones: re-opening the same item (adding a subtitle) briefly has none.
+     * Returns whether the known chapters changed.
+     */
+    @OptIn(UnstableApi::class)
+    private fun refreshChapters(tracks: Tracks): Boolean {
+        val found = ArrayList<ChapterInfo>()
+        for (group in tracks.groups) {
+            for (ti in 0 until group.length) {
+                val metadata = group.getTrackFormat(ti).metadata ?: continue
+                for (c in metadata.getEntriesOfType(Chapter::class.java)) found += ChapterInfo(c.title?.value.orEmpty(), c.startTimeMs)
+            }
+        }
+        if (found.isEmpty()) return false
+        val normalized = normalizeChapters(found)
+        if (normalized == chapterList) return false
+        chapterList = normalized
+        return true
+    }
 
     fun release() {
         main.removeCallbacks(ticker)

@@ -25,6 +25,8 @@ class AppSettingsTest {
         assertEquals(3, s.autoPlayCountdownSeconds)
         assertTrue(s.resumeAutomatically)
         assertFalse(s.skipCompleted)
+        assertFalse(s.autoSkipIntro)
+        assertFalse(s.autoSkipEnding)
         assertEquals("", s.preferredAudioLanguage)
         assertEquals("", s.preferredSubtitleLanguage)
         assertEquals(100, s.defaultVolume)
@@ -45,12 +47,15 @@ class AppSettingsTest {
         s.setPreferredAudioLanguage("  por ")
         assertEquals("por", s.preferredAudioLanguage)
         s.setSkipCompleted(true)
+        s.setAutoSkipEnding(true)
         s.setPlayerOrientation(PlayerOrientation.FOLLOW_DEVICE)
 
         val reopened = AppSettings(store) // a restart reads the same values back
         assertEquals(30, reopened.autoPlayCountdownSeconds)
         assertEquals("por", reopened.preferredAudioLanguage)
         assertTrue(reopened.skipCompleted)
+        assertTrue(reopened.autoSkipEnding)
+        assertFalse(reopened.autoSkipIntro) // each option is stored on its own
         assertEquals(PlayerOrientation.FOLLOW_DEVICE, reopened.playerOrientation)
     }
 

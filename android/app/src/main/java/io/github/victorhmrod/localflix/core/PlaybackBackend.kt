@@ -55,6 +55,9 @@ interface BackendListener {
 
     fun onTracksChanged(tracks: List<TrackInfo>) {}
 
+    /** The file's chapters became known or changed (normally they are already there when [onFileLoaded] fires). */
+    fun onChaptersChanged(chapters: List<ChapterInfo>) {}
+
     fun onEndFile(info: EndFileInfo) {}
 }
 
@@ -100,4 +103,7 @@ interface PlaybackBackend {
     val isMuted: Boolean
     val speed: Double
     val tracks: List<TrackInfo>
+
+    /** Chapters of the current file in playback order (empty when it has none, or nothing is loaded). */
+    val chapters: List<ChapterInfo>
 }

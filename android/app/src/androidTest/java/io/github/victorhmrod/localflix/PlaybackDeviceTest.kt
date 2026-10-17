@@ -29,7 +29,7 @@ import java.util.UUID
 
 private const val TAG = "LocalFlixTest"
 
-private fun fileScan(file: File, root: String = "videos"): ScannedFile = ScannedFile(
+fun fileScan(file: File, root: String = "videos"): ScannedFile = ScannedFile(
     uri = Uri.fromFile(file).toString(),
     docKey = "files/${file.name}",
     displayName = file.name,

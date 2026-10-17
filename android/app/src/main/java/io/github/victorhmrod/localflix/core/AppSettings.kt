@@ -12,6 +12,8 @@ object SettingKey {
     const val AUTO_PLAY_COUNTDOWN = "playback.autoPlayCountdownSeconds"
     const val RESUME_AUTOMATICALLY = "playback.resumeAutomatically"
     const val SKIP_COMPLETED = "playback.skipCompleted"
+    const val AUTO_SKIP_INTRO = "playback.autoSkipIntro"
+    const val AUTO_SKIP_ENDING = "playback.autoSkipEnding"
     const val PREFERRED_AUDIO_LANGUAGE = "playback.preferredAudioLanguage"
     const val PREFERRED_SUBTITLE_LANGUAGE = "playback.preferredSubtitleLanguage"
     const val DEFAULT_VOLUME = "playback.defaultVolume"
@@ -57,6 +59,8 @@ class AppSettings(private val store: SettingsStore) : PlaybackSettings {
         SettingKey.AUTO_PLAY_COUNTDOWN -> "3"
         SettingKey.RESUME_AUTOMATICALLY -> "1"
         SettingKey.SKIP_COMPLETED -> "0"
+        SettingKey.AUTO_SKIP_INTRO -> "0"
+        SettingKey.AUTO_SKIP_ENDING -> "0"
         SettingKey.DEFAULT_VOLUME -> "100"
         SettingKey.PLAYBACK_SPEED -> "1"
         SettingKey.PLAYER_ORIENTATION -> "0"
@@ -78,6 +82,8 @@ class AppSettings(private val store: SettingsStore) : PlaybackSettings {
     override val autoPlayCountdownSeconds get() = (get(SettingKey.AUTO_PLAY_COUNTDOWN).toIntOrNull() ?: 3).coerceIn(0, 30)
     override val resumeAutomatically get() = flag(SettingKey.RESUME_AUTOMATICALLY)
     override val skipCompleted get() = flag(SettingKey.SKIP_COMPLETED)
+    override val autoSkipIntro get() = flag(SettingKey.AUTO_SKIP_INTRO)
+    override val autoSkipEnding get() = flag(SettingKey.AUTO_SKIP_ENDING)
     val preferredAudioLanguage get() = get(SettingKey.PREFERRED_AUDIO_LANGUAGE)
     val preferredSubtitleLanguage get() = get(SettingKey.PREFERRED_SUBTITLE_LANGUAGE)
     val defaultVolume get() = (get(SettingKey.DEFAULT_VOLUME).toIntOrNull() ?: 100).coerceIn(0, 130)
@@ -91,6 +97,10 @@ class AppSettings(private val store: SettingsStore) : PlaybackSettings {
     fun setResumeAutomatically(v: Boolean) = set(SettingKey.RESUME_AUTOMATICALLY, if (v) "1" else "0")
 
     fun setSkipCompleted(v: Boolean) = set(SettingKey.SKIP_COMPLETED, if (v) "1" else "0")
+
+    fun setAutoSkipIntro(v: Boolean) = set(SettingKey.AUTO_SKIP_INTRO, if (v) "1" else "0")
+
+    fun setAutoSkipEnding(v: Boolean) = set(SettingKey.AUTO_SKIP_ENDING, if (v) "1" else "0")
 
     fun setPreferredAudioLanguage(v: String) = set(SettingKey.PREFERRED_AUDIO_LANGUAGE, v.trim())
 

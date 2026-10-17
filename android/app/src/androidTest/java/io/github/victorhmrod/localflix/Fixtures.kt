@@ -88,6 +88,16 @@ fun copyTestVideo(name: String, into: File = File(targetContext.cacheDir, "video
     return out
 }
 
+/** Like [copyTestVideo], but under another file name (an episode needs a file of its own). */
+fun copyTestVideoAs(name: String, asName: String, into: File): File {
+    into.mkdirs()
+    val out = File(into, asName)
+    if (!out.exists() || out.length() == 0L) {
+        testContext.assets.open(name).use { input -> FileOutputStream(out).use { input.copyTo(it) } }
+    }
+    return out
+}
+
 fun testVideoAvailable(name: String): Boolean = try {
     testContext.assets.open(name).close()
     true

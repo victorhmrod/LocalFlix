@@ -11,6 +11,7 @@ import io.github.victorhmrod.localflix.core.PlaybackEvent
 import io.github.victorhmrod.localflix.core.PlaybackFailure
 import io.github.victorhmrod.localflix.core.PlaybackState
 import io.github.victorhmrod.localflix.core.QueueEntry
+import io.github.victorhmrod.localflix.core.SkipSegment
 import io.github.victorhmrod.localflix.core.TrackInfo
 import io.github.victorhmrod.localflix.core.formatClock
 
@@ -29,6 +30,10 @@ class PlaybackUi(private val controller: PlaybackController) {
     var hasPrevious by mutableStateOf(false)
         private set
     var tracks by mutableStateOf<List<TrackInfo>>(emptyList())
+        private set
+
+    /** The opening/ending the playhead is in (invalid when none): the player offers a Skip button while there is one. */
+    var activeSegment by mutableStateOf(SkipSegment())
         private set
 
     /** Countdown to the next item: who is next and the uptime (ms) when it starts. */
@@ -67,6 +72,8 @@ class PlaybackUi(private val controller: PlaybackController) {
                 durationMs = e.durationMs
             }
             is PlaybackEvent.TracksChanged -> tracks = e.tracks
+            is PlaybackEvent.SkipSegmentChanged -> activeSegment = e.segment
+            is PlaybackEvent.SegmentSkipped -> if (e.automatic) notice = "Skipped ${e.segment.noun}"
             is PlaybackEvent.ItemCompleted -> {}
             is PlaybackEvent.AutoAdvancePending -> {
                 upNext = e.next

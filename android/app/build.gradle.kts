@@ -57,8 +57,9 @@ android {
     }
 
     sourceSets {
-        // The synthetic clips made by scripts/make_test_videos.py (git-ignored) ride along in the test APK only.
-        named("androidTest") { assets.directories += "../../testdata/videos" }
+        // The synthetic clips made by scripts/make_test_videos.py and android/scripts/make_chaptered_clips.py (both
+        // git-ignored) ride along in the test APK only.
+        named("androidTest") { assets.directories += listOf("../../testdata/videos", "../testdata") }
     }
 }
 

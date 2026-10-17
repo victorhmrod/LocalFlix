@@ -30,7 +30,8 @@ The installer is not code-signed, so Windows SmartScreen may show *"Windows prot
 
 **Android:** there is a native Android version (Kotlin, Jetpack Compose, Room, Media3). Download the APK from the
 [v1.0.0 release](https://github.com/victorhmrod/LocalFlix/releases/tag/v1.0.0); the code is in
-[`android/`](android/README.md), which also explains the toolchain and how it is tested.
+[`android/`](android/README.md), which also explains the toolchain and how it is tested. It skips openings and
+endings too, from the chapters in the file (see *Skipping openings and endings* below and the Android README).
 
 Prefer no installer? The release also has a portable **`LocalFlix-<version>-win64.zip`**: unzip anywhere and run
 `localflix.exe`.
@@ -204,7 +205,7 @@ Architecture, threading rules, the SQLite schema and the reasoning behind the ma
 * Windows only; x64 only. Needs a GPU/driver that can present OpenGL 3.3 (or use `--software-opengl`).
 * Hardware decoding is requested with libmpv's `hwdec=auto-safe`; which decoder is actually used depends on mpv and your GPU driver (the automated tests only exercise software decoding).
 * Episode thumbnails and metadata lookup are not implemented (descriptions and covers are manual, by design: no internet).
-* Skip intro/ending finds openings and endings from the file's embedded chapters, or from the marks you set once per season for files without chapters; there is no audio fingerprinting.
+* Skip intro/ending finds openings and endings from the file's embedded chapters, or, on Windows, from the marks you set once per season for files without chapters; there is no audio fingerprinting. On Android there is no marking yet, so a file with no (or unlabelled) chapters shows no Skip button there, and the chapters are the ones Media3 reads (Matroska/WebM and MP4/MOV), a narrower set than libmpv's.
 * Picture in picture is a small always-on-top window (Windows app only), not the operating system's own overlay; it keeps its title bar so it can be moved and resized like any window.
 * Audio and subtitle choices are remembered **per show**, by language and title (a choice made in one episode applies to the others, even where the tracks come in another order; "subtitles off" too), and per file for movies. A show's other episodes only follow a language they actually have; where they do not, the engine's own pick stands. There is no global "always Portuguese" other than *Settings → Preferred audio/subtitle language*.
 * Progress positions shorter than 5 s are not resumed (a deliberate rule so an accidental click does not hijack "Continue").

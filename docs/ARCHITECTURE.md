@@ -81,6 +81,9 @@ playback); `ApplicationController::shutdown()` then stops the workers and closes
     parks on the last frame and never reports the end of the file (also covered by `tst_mpv_backend`).
   * Chapters are read from the backend when `fileLoaded` arrives (the backend refreshes them first), and again when
     they or the duration change; segments are cleared when a file ends or is replaced.
+  * The Android app ports all of this unchanged (`core/SkipSegments.kt`, `core/PlaybackController.kt`); only the source
+    of the chapters differs: Media3 has no chapter API, it hangs `Chapter` metadata entries on each track's `Format`
+    (Matroska/WebM and MP4/MOV), which `Media3Backend` collects from `currentTracks`. See `android/README.md`.
 * **Audio and subtitle choice** (`TrackChoice`, `PlaybackController::restoreTrackChoices`). A choice made while
   watching an episode belongs to its **show** and is stored by what the track is (language, title: `show_track_prefs`),
   because a track number means nothing in the next file and, left to libmpv alone, the choice was lost when an episode
