@@ -2,6 +2,7 @@
 
 #include "ApplicationController.h"
 #include "IPlaybackBackend.h"
+#include "KeepAwake.h"
 #include "Theme.h"
 #include "Types.h"
 
@@ -106,6 +107,7 @@ private:
     void loadExternalSubtitle();
     void seekFraction(double fraction);
     bool controlsAreHot() const;
+    void updateKeepAwake();
 
     ApplicationController& m_app;
     PlaybackController& m_playback;
@@ -148,6 +150,7 @@ private:
     QLabel* m_hoverTime;
     CenterCard* m_card;
 
+    KeepAwake m_keepAwake;  // the display stays on while a video plays
     QTimer m_hideTimer;
     QTimer m_clickTimer;
     QTimer m_countdownTimer;

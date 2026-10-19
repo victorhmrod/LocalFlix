@@ -17,6 +17,8 @@ add_library(localflix_ui STATIC
     FlowLayout.h
     HomeView.cpp
     HomeView.h
+    KeepAwake.cpp
+    KeepAwake.h
     LibraryActions.cpp
     LibraryActions.h
     LibraryView.cpp

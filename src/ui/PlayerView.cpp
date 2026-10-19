@@ -458,6 +458,7 @@ void PlayerView::showEvent(QShowEvent* e)
     layoutOverlays();
     showControls();
     setFocus();
+    updateKeepAwake();
 }
 
 void PlayerView::hideEvent(QHideEvent* e)
@@ -467,6 +468,7 @@ void PlayerView::hideEvent(QHideEvent* e)
     m_clickTimer.stop();
     m_countdownTimer.stop();
     m_video->unsetCursor();
+    updateKeepAwake();
 }
 
 bool PlayerView::eventFilter(QObject* watched, QEvent* event)
@@ -592,6 +594,16 @@ void PlayerView::onStateChanged(PlaybackState state)
         m_tracks.clear();
         rebuildTrackMenus();
     }
+    updateKeepAwake();
+}
+
+// Only a video that is actually playing, on the visible player page, holds the display on: paused, finished,
+// stopped or back in the library, the PC goes to standby as usual. Loading counts, so going from one episode to
+// the next does not release it for the moment in between.
+void PlayerView::updateKeepAwake()
+{
+    const PlaybackState state = m_playback.state();
+    m_keepAwake.setActive(isVisible() && (state == PlaybackState::Playing || state == PlaybackState::Loading));
 }
 
 void PlayerView::updatePlayPauseIcon()

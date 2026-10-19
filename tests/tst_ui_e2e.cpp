@@ -64,6 +64,17 @@ bool waitFor(const std::function<bool()>& cond, int timeoutMs)
     return true;
 }
 
+#ifdef Q_OS_WIN
+// Whether the GUI thread is asking Windows to keep the display on. SetThreadExecutionState returns the state it
+// replaces, so setting the plain one and putting that back reads it without changing it.
+bool keepsDisplayOn()
+{
+    const DWORD previous = SetThreadExecutionState(ES_CONTINUOUS);
+    SetThreadExecutionState(ES_CONTINUOUS | previous);
+    return (previous & ES_DISPLAY_REQUIRED) != 0 && (previous & ES_SYSTEM_REQUIRED) != 0;
+}
+#endif
+
 QString shotDir()
 {
     const QString dir = QStringLiteral(LOCALFLIX_SHOT_DIR);
@@ -591,6 +602,9 @@ private slots:
         auto* controls = player->findChild<QFrame*>("ControlBar");
         auto* topBar = player->findChild<QFrame*>("TopBar");
         QVERIFY(controls && topBar);
+#ifdef Q_OS_WIN
+        QVERIFY2(keepsDisplayOn(), "the display is not held on while a video plays");
+#endif
 
         // fullscreen from the button, and out again with Escape
         QVERIFY(!s.window->isFullScreen());
@@ -610,8 +624,14 @@ private slots:
         // keyboard: space pauses/plays, M mutes, Up raises volume, Right seeks, N goes to the next item
         QTest::keyClick(player, Qt::Key_Space);
         QVERIFY(waitFor([&] { return s.app->playback().state() == PlaybackState::Paused; }, 12000));
+#ifdef Q_OS_WIN
+        QVERIFY2(!keepsDisplayOn(), "a paused video still holds the display on");
+#endif
         QTest::keyClick(player, Qt::Key_Space);
         QVERIFY(waitFor([&] { return s.app->playback().state() == PlaybackState::Playing; }, 12000));
+#ifdef Q_OS_WIN
+        QVERIFY2(keepsDisplayOn(), "resuming did not hold the display on again");
+#endif
         QTest::keyClick(player, Qt::Key_M);
         QVERIFY(waitFor([&] { return s.engine->isMuted(); }, 12000));
         QTest::keyClick(player, Qt::Key_M);
@@ -638,6 +658,9 @@ private slots:
         QTest::keyClick(player, Qt::Key_Escape);
         QVERIFY(waitFor([&] { return !player->isVisible(); }, 12000));
         QCOMPARE(s.app->playback().state(), PlaybackState::Idle);
+#ifdef Q_OS_WIN
+        QVERIFY2(!keepsDisplayOn(), "the display is still held on after leaving the player");
+#endif
         s.closeLikeAUser();
     }
 
