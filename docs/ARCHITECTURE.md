@@ -130,7 +130,12 @@ composites the pixels. Rules that follow from that:
   closing the application while in it saves the normal geometry, never the small one;
 * render calls pass `BLOCK_FOR_TARGET_TIME=0` and the engine runs with `video-timing-offset=0` so the GUI thread is never
   blocked waiting for vsync;
-* video loading waits for the render context (`PlayerView::whenVideoReady`), with a visible error after 6 s.
+* video loading waits for the render context (`PlayerView::whenVideoReady`), with a visible error after 6 s;
+* the display stays on while a video plays. With the render API libmpv has no window, so its own screensaver
+  inhibition never runs and Windows would put the screen on standby during a long episode. `PlayerView` owns a
+  `KeepAwake` (`SetThreadExecutionState`, display and system required) that is on while the player page is visible and
+  the state is Playing or Loading, and off when paused, stopped, finished or back in the library. The request belongs
+  to the GUI thread that makes it, which is the only thread that touches it.
 
 Alternative considered and rejected: `--wid` embedding of mpv's own window. It would not need a GL context in Qt, but
 Qt widgets cannot be drawn on top of a foreign native window (the "airspace" problem), so the overlay, countdown card and

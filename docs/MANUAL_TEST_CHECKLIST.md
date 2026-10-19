@@ -63,6 +63,9 @@ launching `localflix.exe` (or delete `%APPDATA%\LocalFlix`).
   monitors, with a 4:3 video (the window should be 4:3), and with the "Next episode" card showing in it.
 * Speed menu, `[` `]`, volume (wheel, ↑/↓), mute (`M`), `0`–`9` jump keys.
 * Fullscreen (`F`, button, double-click): controls and cursor hide after ~3 s of no movement and return on movement; `Esc` leaves fullscreen first, then the player.
+* **Screen standby**: set Windows to turn the display off after 1 minute (Settings → System → Power), play a video and
+  do not touch the mouse or keyboard for 2 minutes: the screen stays on. Pause it (or go back to the library) and the
+  screen turns off after the minute as usual.
 
 ## C. Library management
 
